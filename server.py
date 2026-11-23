@@ -97,7 +97,9 @@ def register():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="Expected a JSON object"), 400
-    username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
+    if not isinstance(data.get("username"), str) or not isinstance(data.get("password"), str):
+        return jsonify(error="Username and password must be strings"), 400
+    username, password = data["username"].strip(), data["password"]
     if not 3 <= len(username) <= 32 or not all(c.isascii() and (c.isalnum() or c == "_") for c in username):
         return jsonify(error="Username must be 3-32 ASCII letters, digits or underscores"), 400
     if len(password) < 8 or len(password) > 1024:
@@ -116,7 +118,9 @@ def login():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="Expected a JSON object"), 400
-    username, password = str(data.get("username", "")), str(data.get("password", ""))
+    if not isinstance(data.get("username"), str) or not isinstance(data.get("password"), str):
+        return jsonify(error="Username and password must be strings"), 400
+    username, password = data["username"], data["password"]
     with connection() as db:
         row = db.execute("SELECT username,salt,password_hash FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
     if not row or not hmac.compare_digest(hashed(password, bytes(row["salt"])), bytes(row["password_hash"])):
@@ -370,7 +374,9 @@ def post():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="Expected a JSON object"), 400
-    body = str(data.get("body", "")).strip()
+    if not isinstance(data.get("body"), str):
+        return jsonify(error="Post body must be a string"), 400
+    body = data["body"].strip()
     if not 1 <= len(body) <= 2000:
         return jsonify(error="Post must contain 1-2000 characters"), 400
     with connection() as db:
@@ -450,8 +456,10 @@ def change_password():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify(error="Expected a JSON object"), 400
-    old = str(data.get("current_password", ""))
-    new = str(data.get("new_password", ""))
+    if not isinstance(data.get("current_password"), str) or not isinstance(data.get("new_password"), str):
+        return jsonify(error="Passwords must be strings"), 400
+    old = data["current_password"]
+    new = data["new_password"]
     if not 8 <= len(new) <= 1024:
         return jsonify(error="New password must be 8-1024 characters"), 400
     with connection() as db:
