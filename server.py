@@ -50,7 +50,10 @@ def hashed(password, salt):
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
+            return jsonify(error="Unauthorized"), 401
+        token = authorization[7:].strip()
         if not token:
             return jsonify(error="Unauthorized"), 401
         with connection() as db:
