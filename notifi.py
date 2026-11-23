@@ -1,6 +1,6 @@
 """Global notification inbox and destination navigation."""
 from accounts import profile
-from posts import display
+from posts import display, identity
 
 
 _last_announcement = {}
@@ -11,17 +11,17 @@ def announce(api):
     global _last_announcement
     data=api.request("/notifications/summary")
     snapshot=(data.get("unread"),data.get("unseen_posts"),tuple(data.get("recent_post_authors", [])))
-    identity = api.token
-    if snapshot == _last_announcement.get(identity):
+    session_id = api.token
+    if snapshot == _last_announcement.get(session_id):
         return
-    _last_announcement[identity]=snapshot
+    _last_announcement[session_id]=snapshot
     count=data.get("unseen_posts",0)
     if count>=5:
         print("[Notification] You have {} unseen posts. Check your Shelf.".format(count))
     elif count:
         authors = data.get("recent_post_authors") or []
         for author in reversed(authors[:count]):
-            print("[Notification] {} made a post.".format(author))
+            print("[Notification] {} made a post.".format(identity(author, data.get("recent_post_author_badges", {}).get(author))))
     elif data.get("unread",0):
         print("[Notification] You have {} unread notifications. Type notifications.".format(data["unread"]))
 
@@ -38,7 +38,7 @@ def open_notifications(api):
             print("No notifications.")
         for i,item in enumerate(items,1):
             kind=item["kind"]
-            actor=item["actor"]
+            actor=identity(item["actor"], item.get("is_dev", False))
             message={"post":"{} made a post","like":"{} liked your post",
                      "repost":"{} reposted your post","follow":"{} started following you",
                      "profile":"{} updated their profile"}.get(kind,"{} activity").format(actor)

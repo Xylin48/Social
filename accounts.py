@@ -2,6 +2,7 @@
 import getpass
 from urllib.parse import quote, urlencode
 from status import visible_status
+from posts import identity
 
 
 def sign_in(api):
@@ -21,7 +22,8 @@ def sign_in(api):
                 api.request("/register", "POST", {"username": username, "password": password})
             response = api.request("/login", "POST", {"username": username, "password": password})
             api.token = response["token"]
-            print("Welcome back, " + response["username"] + "!")
+            api.is_dev = bool(response.get("is_dev", False))
+            print("Welcome back, " + identity(response["username"], api.is_dev) + "!")
             return response["username"]
         except ValueError as exc:
             print(exc)
@@ -35,7 +37,7 @@ def profile(api, username):
         owner = bool(data.get("is_self"))
         print("\nSOCIAL")
         print("────────────────────────────")
-        print("Welcome to {}'s profile".format(data["username"]))
+        print("Welcome to {}'s profile".format(identity(data["username"], data.get("is_dev", False))))
         print("\nStatus: " + (visible_status(data) or "(none)"))
         print("Followers: {} | Following: {}".format(
             data.get("followers", 0), data.get("following_count", 0)))

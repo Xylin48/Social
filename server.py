@@ -15,6 +15,19 @@ if not DATABASE_URL:
     raise RuntimeError("Set DATABASE_URL to a hosted PostgreSQL connection string")
 
 
+def is_developer(username):
+    """Server-owned badge: usernames configured by the operator, never by clients."""
+    names = {name.strip().casefold() for name in os.environ.get("SOCIAL_DEV_USERS", "Xylin48").split(",") if name.strip()}
+    return isinstance(username, str) and username.casefold() in names
+
+
+def decorate_identity(data, key="username"):
+    """Add a consistent, server-authoritative developer flag to an API record."""
+    result = dict(data)
+    result["is_dev"] = is_developer(result.get(key))
+    return result
+
+
 def connection():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
@@ -94,8 +107,12 @@ def auth_required(fn):
 
 @app.post("/register")
 def register():
-    data = request.get_json(silent=True) or {}
-    username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    if not isinstance(data.get("username"), str) or not isinstance(data.get("password"), str):
+        return jsonify(error="Username and password must be strings"), 400
+    username, password = data["username"].strip(), data["password"]
     if not 3 <= len(username) <= 32 or not all(c.isascii() and (c.isalnum() or c == "_") for c in username):
         return jsonify(error="Username must be 3-32 ASCII letters, digits or underscores"), 400
     if len(password) < 8 or len(password) > 1024:
@@ -111,8 +128,12 @@ def register():
 
 @app.post("/login")
 def login():
-    data = request.get_json(silent=True) or {}
-    username, password = str(data.get("username", "")), str(data.get("password", ""))
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    if not isinstance(data.get("username"), str) or not isinstance(data.get("password"), str):
+        return jsonify(error="Username and password must be strings"), 400
+    username, password = data["username"], data["password"]
     with connection() as db:
         row = db.execute("SELECT username,salt,password_hash FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
     if not row or not hmac.compare_digest(hashed(password, bytes(row["salt"])), bytes(row["password_hash"])):
@@ -122,7 +143,7 @@ def login():
         db.execute("INSERT INTO sessions(token_hash,username,expires_at) VALUES(%s,%s,%s)",
                    (hashlib.sha256(token.encode()).hexdigest(), row["username"],
                     datetime.now(timezone.utc) + timedelta(hours=12)))
-    return jsonify(token=token, username=row["username"])
+    return jsonify(token=token, username=row["username"], is_dev=is_developer(row["username"]))
 
 @app.post("/logout")
 @auth_required
@@ -165,7 +186,7 @@ def feed():
                 (g.username, g.username, before, before, limit + 1)).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
-    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
+    return jsonify(posts=[decorate_identity(dict(row, created_at=row["created_at"].isoformat())) for row in page],
                    next_before=page[-1]["id"] if has_more else None)
 
 
@@ -205,7 +226,7 @@ def shelf():
             db.execute("""UPDATE notifications SET read_at=now()
                           WHERE recipient=%s AND kind='post' AND read_at IS NULL""",(g.username,))
     page = rows[:limit]
-    return jsonify(posts=[dict(row, id=row["post_id"], event_id=str(row["event_id"]), created_at=row["created_at"].isoformat()) for row in page],
+    return jsonify(posts=[dict(decorate_identity(dict(row, id=row["post_id"], event_id=str(row["event_id"]), created_at=row["created_at"].isoformat())), reposted_by_is_dev=is_developer(row["reposted_by"])) for row in page],
                    next_before=str(page[-1]["event_id"]) if len(rows)>limit else None)
 
 
@@ -223,7 +244,7 @@ def get_post(post_id):
         """, (g.username,g.username,post_id)).fetchone()
     if not row:
         return jsonify(error="Post not found"),404
-    return jsonify(dict(row,created_at=row["created_at"].isoformat()))
+    return jsonify(decorate_identity(dict(row,created_at=row["created_at"].isoformat())))
 
 
 @app.route("/posts/<int:post_id>/like", methods=["POST","DELETE"])
@@ -279,7 +300,7 @@ def list_notifications():
                              ORDER BY id DESC LIMIT %s""",
                           (g.username,before,before,limit+1)).fetchall()
     page = rows[:limit]
-    return jsonify(notifications=[dict(row,created_at=row["created_at"].isoformat(),
+    return jsonify(notifications=[dict(decorate_identity(row, "actor"),created_at=row["created_at"].isoformat(),
                                      read_at=row["read_at"].isoformat() if row["read_at"] else None)
                                  for row in page],
                    next_before=page[-1]["id"] if len(rows)>limit else None)
@@ -315,7 +336,8 @@ def notification_summary():
             (g.username,)).fetchone()["n"]
     return jsonify(unread=unread,unseen_posts=unseen,
                    latest_post_author=post_events[0]["actor"] if post_events else None,
-                   recent_post_authors=[row["actor"] for row in post_events])
+                   recent_post_authors=[row["actor"] for row in post_events],
+                   recent_post_author_badges={row["actor"]: is_developer(row["actor"]) for row in post_events})
 
 
 @app.get("/me/following")
@@ -324,7 +346,7 @@ def following():
     with connection() as db:
         rows = db.execute("SELECT followed FROM follows WHERE follower=%s ORDER BY followed",
                           (g.username,)).fetchall()
-    return jsonify(users=[row["followed"] for row in rows])
+    return jsonify(users=[row["followed"] for row in rows], user_badges={row["followed"]: is_developer(row["followed"]) for row in rows})
 
 
 @app.post("/users/<username>/follow")
@@ -363,7 +385,12 @@ def unfollow(username):
 @app.post("/posts")
 @auth_required
 def post():
-    body = str((request.get_json(silent=True) or {}).get("body", "")).strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    if not isinstance(data.get("body"), str):
+        return jsonify(error="Post body must be a string"), 400
+    body = data["body"].strip()
     if not 1 <= len(body) <= 2000:
         return jsonify(error="Post must contain 1-2000 characters"), 400
     with connection() as db:
@@ -380,7 +407,7 @@ def search():
     with connection() as db:
         rows = db.execute("SELECT username FROM users WHERE username ILIKE %s ORDER BY username LIMIT 30",
                           ("%" + q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",)).fetchall()
-    return jsonify(users=[row["username"] for row in rows])
+    return jsonify(users=[row["username"] for row in rows], user_badges={row["username"]: is_developer(row["username"]) for row in rows})
 
 @app.get("/users/<username>")
 @auth_required
@@ -395,7 +422,7 @@ def profile(username):
           (SELECT count(*) FROM follows WHERE follower=%s) AS following_count,
           EXISTS(SELECT 1 FROM follows WHERE follower=%s AND followed=%s) AS is_following""",
           (row["username"], row["username"], g.username, row["username"])).fetchone()
-    return jsonify(username=row["username"], bio=row["bio"], description=row["description"],
+    return jsonify(username=row["username"], is_dev=is_developer(row["username"]), bio=row["bio"], description=row["description"],
                    status=row["status"], status_set_at=row["status_set_at"].isoformat() if row["status_set_at"] else None,
                    status_infinite=row["status_infinite"],
                    created_at=row["created_at"].isoformat(),
@@ -405,7 +432,7 @@ def profile(username):
 @app.patch("/me")
 @auth_required
 def settings():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     allowed = {"bio", "description", "status", "status_infinite"}
     if not isinstance(data, dict) or not data or set(data) - allowed:
         return jsonify(error="Invalid settings"), 400
@@ -440,9 +467,13 @@ def settings():
 @app.post("/me/password")
 @auth_required
 def change_password():
-    data = request.get_json(silent=True) or {}
-    old = str(data.get("current_password", ""))
-    new = str(data.get("new_password", ""))
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    if not isinstance(data.get("current_password"), str) or not isinstance(data.get("new_password"), str):
+        return jsonify(error="Passwords must be strings"), 400
+    old = data["current_password"]
+    new = data["new_password"]
     if not 8 <= len(new) <= 1024:
         return jsonify(error="New password must be 8-1024 characters"), 400
     with connection() as db:

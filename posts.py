@@ -1,13 +1,17 @@
 """Post rendering and interactions for Book and Shelf."""
 
 
+def identity(username, is_dev=False):
+    return "{} [dev]".format(username) if is_dev else str(username)
+
+
 def display(posts):
     if not posts:
         print("No posts yet.")
     for post in posts:
         if post.get("reposted_by"):
-            print("\n↻ {} reposted".format(post["reposted_by"]))
-        print("\n#{id}  @{username}  ·  {created_at}\n{body}".format(**post))
+            print("\n↻ {} reposted".format(identity(post["reposted_by"], post.get("reposted_by_is_dev", False))))
+        print("\n#{id}  @{username}  ·  {created_at}\n{body}".format(\n            **dict(post, username=identity(post["username"], post.get("is_dev", False)))))
         print("{} {} likes    ↻ {} reposts".format(
             "♥" if post.get("liked_by_me") else "♡",
             post.get("like_count", 0), post.get("repost_count", 0)))
