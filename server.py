@@ -492,7 +492,13 @@ def change_password():
 
 @app.get("/health")
 def health():
-    return jsonify(status="okay")
+    try:
+        with connection() as db:
+            db.execute("SELECT 1 FROM users LIMIT 1")
+    except psycopg.Error:
+        app.logger.exception("Database readiness check failed")
+        return jsonify(status="unavailable"), 503
+    return jsonify(status="okay", database="connected")
 
 if __name__ == "__main__":
     init_db()
