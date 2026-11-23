@@ -50,6 +50,27 @@ class NotificationsTest(unittest.TestCase):
             notifi.announce(second)
         self.assertEqual(output.getvalue().count("Check your Shelf"), 2)
 
+    def test_three_posts_announced_individually(self):
+        api = FakeAPI()
+        api.summary = {"unread": 3, "unseen_posts": 3,
+                       "recent_post_authors": ["Jordan", "Alex", "Sam"]}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            notifi.announce(api)
+        text = output.getvalue()
+        self.assertEqual(text.count("[Notification]"), 3)
+        self.assertIn("Sam made a post.", text)
+        self.assertNotIn("Check your Shelf", text)
+
+    def test_zero_posts_still_announces_other_notifications(self):
+        api = FakeAPI()
+        api.summary = {"unread": 2, "unseen_posts": 0,
+                       "recent_post_authors": []}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            notifi.announce(api)
+        self.assertIn("2 unread notifications", output.getvalue())
+
     def test_post_notification_opens_original_post(self):
         api = FakeAPI()
         with patch("builtins.input", side_effect=["1", "back"]), contextlib.redirect_stdout(io.StringIO()):
