@@ -32,9 +32,11 @@ def open_book(api):
         elif action in ("feed", ""):
             username, before = None, None
             next_before = show_page()
-        elif action == "user" and argument:
-            username, before = argument, None
-            next_before = show_page()
+        elif action == "user":
+            target = argument or input("Username: ").strip()
+            if target:
+                username, before = target, None
+                next_before = show_page()
         elif action == "next":
             if next_before is None:
                 print("End of posts.")
