@@ -96,12 +96,27 @@ def logout():
 @auth_required
 def feed():
     username = request.args.get("username")
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except ValueError:
+        return jsonify(error="Invalid pagination"), 400
     with connection() as db:
         if username:
-            rows = db.execute("SELECT id,username,body,created_at FROM posts WHERE lower(username)=lower(%s) ORDER BY id DESC LIMIT 30", (username,)).fetchall()
+            rows = db.execute(
+                "SELECT id,username,body,created_at FROM posts WHERE lower(username)=lower(%s) AND (%s=0 OR id<%s) ORDER BY id DESC LIMIT %s",
+                (username, before, before, limit + 1)).fetchall()
         else:
-            rows = db.execute("SELECT id,username,body,created_at FROM posts ORDER BY id DESC LIMIT 30").fetchall()
-    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in rows])
+            rows = db.execute(
+                "SELECT id,username,body,created_at FROM posts WHERE (%s=0 OR id<%s) ORDER BY id DESC LIMIT %s",
+                (before, before, limit + 1)).fetchall()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=page[-1]["id"] if has_more else None)
+
 
 @app.post("/posts")
 @auth_required
