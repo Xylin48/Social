@@ -10,7 +10,7 @@ Social is a networked terminal social application adapted from PyOs. The origina
 - `shelf.py` — the personal reading room: posts from followed accounts, with pagination.
 - `posts.py` — write and display posts.
 - `accounts.py` — login, registration, and profiles.
-- `settings.py` — account preferences and password changes.
+- `settings.py` — bio, status, description, and password changes.\n- `status.py` — client-local 48-hour status visibility clock; infinite statuses remain visible.
 - `api.py` — shared HTTPS connection to the remote Social server.
 - `client.py` — compatibility launcher that opens `main.py`.
 - `server.py` — the separate Flask API backed by hosted Neon PostgreSQL.
@@ -35,3 +35,7 @@ Python 3.9 is end-of-life. Before opening registration broadly, upgrade hosting 
 ## Tests
 
 Run `python -m unittest discover -s tests -v`. Network room tests use a fake API; legacy SQLite tests exercise the archived prototype. Full integration tests against a disposable PostgreSQL database and the actual Spaceship deployment are still needed.
+
+## Profile fields
+
+Bio (160 characters) is a short permanent statement. Description (up to 10000 characters) supports multiline text, including imported plain-text profile descriptions. Status (280 characters) lasts 48 hours by default or can be set to `save infinite`. The server stores the status and creation timestamp in the shared database, while each terminal client evaluates expiry locally when viewing a profile. This needs no background timer or always-running client. The old status remains stored until replaced or cleared, but is hidden after expiration by current clients. A client with an incorrect system clock can display an incorrect result; older clients may not implement expiry.
