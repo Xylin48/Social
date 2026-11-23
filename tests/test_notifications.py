@@ -112,6 +112,22 @@ class NotificationsTest(unittest.TestCase):
         self.assertIn("Unable to open notification", output.getvalue())
         self.assertNotIn(("/notifications/7/read", "POST"), api.calls)
 
+    def test_failed_post_render_does_not_mark_read(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["1", "back"]), \
+             patch.object(notifi, "display", side_effect=ValueError("Render failed")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            notifi.open_notifications(api)
+        self.assertNotIn(("/notifications/7/read", "POST"), api.calls)
+
+    def test_failed_profile_open_does_not_mark_read(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["2", "back"]), \
+             patch.object(notifi, "profile", side_effect=ValueError("Profile unavailable")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            notifi.open_notifications(api)
+        self.assertNotIn(("/notifications/8/read", "POST"), api.calls)
+
     def test_unread_notifications_are_not_mixed_into_shelf(self):
         from shelf import open_shelf
         api = FakeAPI()
