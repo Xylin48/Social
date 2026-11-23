@@ -13,7 +13,7 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Set DATABASE_URL to a hosted PostgreSQL connection string")
-TOKENS = {}
+
 
 def connection():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -27,8 +27,49 @@ def init_db():
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           username TEXT NOT NULL REFERENCES users(username),
           body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_set_at TIMESTAMPTZ")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_infinite BOOLEAN NOT NULL DEFAULT FALSE")
         db.execute("CREATE INDEX IF NOT EXISTS posts_user_idx ON posts(username,id DESC)")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_lower_unique ON users(lower(username))")
+        db.execute("""CREATE TABLE IF NOT EXISTS follows(
+          follower TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          followed TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY(follower, followed),
+          CHECK (follower <> followed))""")
+        db.execute("CREATE INDEX IF NOT EXISTS follows_followed_idx ON follows(followed)")
+        db.execute("""CREATE TABLE IF NOT EXISTS sessions(
+          token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username)
+          ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL)""")
+
+        db.execute("""CREATE TABLE IF NOT EXISTS post_likes(
+          post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY(post_id,username))""")
+        db.execute("""CREATE TABLE IF NOT EXISTS reposts(
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE(post_id,username))""")
+        db.execute("CREATE INDEX IF NOT EXISTS reposts_user_idx ON reposts(username,id DESC)")
+        db.execute("CREATE INDEX IF NOT EXISTS post_likes_post_idx ON post_likes(post_id)")
+
+        db.execute("""CREATE TABLE IF NOT EXISTS notifications(
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          recipient TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          actor TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          post_id BIGINT REFERENCES posts(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          read_at TIMESTAMPTZ)""")
+        db.execute("CREATE INDEX IF NOT EXISTS notifications_inbox_idx ON notifications(recipient,id DESC)")
+        db.execute("""CREATE TABLE IF NOT EXISTS shelf_views(
+          username TEXT PRIMARY KEY REFERENCES users(username) ON DELETE CASCADE,
+          viewed_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
 
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
@@ -36,11 +77,18 @@ def hashed(password, salt):
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "", 1).strip()
-        session = TOKENS.get(token)
-        if not session or session[1] < datetime.now(timezone.utc):
+        authorization = request.headers.get("Authorization", "")
+        if not authorization.startswith("Bearer "):
             return jsonify(error="Unauthorized"), 401
-        g.username = session[0]
+        token = authorization[7:].strip()
+        if not token:
+            return jsonify(error="Unauthorized"), 401
+        with connection() as db:
+            session = db.execute("SELECT username FROM sessions WHERE token_hash=%s AND expires_at>now()",
+                                 (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+        if not session:
+            return jsonify(error="Unauthorized"), 401
+        g.username = session["username"]
         return fn(*args, **kwargs)
     return wrapper
 
@@ -70,26 +118,247 @@ def login():
     if not row or not hmac.compare_digest(hashed(password, bytes(row["salt"])), bytes(row["password_hash"])):
         return jsonify(error="Invalid credentials"), 401
     token = secrets.token_urlsafe(40)
-    TOKENS[token] = (row["username"], datetime.now(timezone.utc) + timedelta(hours=12))
+    with connection() as db:
+        db.execute("INSERT INTO sessions(token_hash,username,expires_at) VALUES(%s,%s,%s)",
+                   (hashlib.sha256(token.encode()).hexdigest(), row["username"],
+                    datetime.now(timezone.utc) + timedelta(hours=12)))
     return jsonify(token=token, username=row["username"])
 
 @app.post("/logout")
 @auth_required
 def logout():
     token = request.headers["Authorization"].replace("Bearer ", "", 1).strip()
-    TOKENS.pop(token, None)
-    return jsonify(ok=True)
+    with connection() as db:
+        db.execute("DELETE FROM sessions WHERE token_hash=%s",
+                   (hashlib.sha256(token.encode()).hexdigest(),))
+    return jsonify(status="okay")
 
 @app.get("/feed")
 @auth_required
 def feed():
     username = request.args.get("username")
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except ValueError:
+        return jsonify(error="Invalid pagination"), 400
     with connection() as db:
         if username:
-            rows = db.execute("SELECT id,username,body,created_at FROM posts WHERE lower(username)=lower(%s) ORDER BY id DESC LIMIT 30", (username,)).fetchall()
+            rows = db.execute(
+                """SELECT p.id,p.username,p.body,p.created_at,
+                       (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+                       (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+                       EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+                       EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+                FROM posts p WHERE lower(p.username)=lower(%s) AND (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s""",
+                (g.username, g.username, username, before, before, limit + 1)).fetchall()
         else:
-            rows = db.execute("SELECT id,username,body,created_at FROM posts ORDER BY id DESC LIMIT 30").fetchall()
-    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in rows])
+            rows = db.execute(
+                """SELECT p.id,p.username,p.body,p.created_at,
+                       (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+                       (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+                       EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+                       EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+                FROM posts p WHERE (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s""",
+                (g.username, g.username, before, before, limit + 1)).fetchall()
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=page[-1]["id"] if has_more else None)
+
+
+@app.get("/shelf")
+@auth_required
+def shelf():
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify(error="Invalid pagination"), 400
+    with connection() as db:
+        rows = db.execute("""
+            SELECT event_id, post_id, username, body, created_at, reposted_by,
+                   (SELECT count(*) FROM post_likes l WHERE l.post_id=events.post_id) AS like_count,
+                   (SELECT count(*) FROM reposts r WHERE r.post_id=events.post_id) AS repost_count,
+                   EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=events.post_id AND l.username=%s) AS liked_by_me,
+                   EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=events.post_id AND r.username=%s) AS reposted_by_me
+            FROM (
+              SELECT ((extract(epoch from p.created_at)*1000000)::numeric * 1000000000000000 + p.id*2) AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
+                     NULL::text AS reposted_by
+              FROM posts p JOIN follows f ON f.followed=p.username WHERE f.follower=%s
+              UNION ALL
+              SELECT ((extract(epoch from r.created_at)*1000000)::numeric * 1000000000000000 + r.id*2+1) AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
+                     r.username AS reposted_by
+              FROM reposts r JOIN posts p ON p.id=r.post_id
+              JOIN follows f ON f.followed=r.username WHERE f.follower=%s
+            ) events
+            WHERE (%s=0 OR event_id<%s)
+            ORDER BY event_id DESC LIMIT %s
+        """, (g.username,g.username,g.username,g.username,before,before,limit+1)).fetchall()
+        if before == 0:
+            db.execute("""INSERT INTO shelf_views(username,viewed_at) VALUES(%s,now())
+                          ON CONFLICT(username) DO UPDATE SET viewed_at=now()""",(g.username,))
+            db.execute("""UPDATE notifications SET read_at=now()
+                          WHERE recipient=%s AND kind='post' AND read_at IS NULL""",(g.username,))
+    page = rows[:limit]
+    return jsonify(posts=[dict(row, id=row["post_id"], event_id=str(row["event_id"]), created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=str(page[-1]["event_id"]) if len(rows)>limit else None)
+
+
+@app.get("/posts/<int:post_id>")
+@auth_required
+def get_post(post_id):
+    with connection() as db:
+        row = db.execute("""
+            SELECT p.id,p.username,p.body,p.created_at,
+              (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+              (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+              EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+              EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+            FROM posts p WHERE p.id=%s
+        """, (g.username,g.username,post_id)).fetchone()
+    if not row:
+        return jsonify(error="Post not found"),404
+    return jsonify(dict(row,created_at=row["created_at"].isoformat()))
+
+
+@app.route("/posts/<int:post_id>/like", methods=["POST","DELETE"])
+@auth_required
+def like_post(post_id):
+    with connection() as db:
+        if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
+            return jsonify(error="Post not found"),404
+        if request.method=="POST":
+            inserted=db.execute("""INSERT INTO post_likes(post_id,username) VALUES(%s,%s)
+                                   ON CONFLICT DO NOTHING RETURNING post_id""",(post_id,g.username)).fetchone()
+            if inserted:
+                db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                              SELECT username,%s,'like',id FROM posts
+                              WHERE id=%s AND username<>%s""",(g.username,post_id,g.username))
+        else:
+            db.execute("DELETE FROM post_likes WHERE post_id=%s AND username=%s",(post_id,g.username))
+    return jsonify(status="okay",liked=request.method=="POST")
+
+
+@app.route("/posts/<int:post_id>/repost", methods=["POST","DELETE"])
+@auth_required
+def repost_post(post_id):
+    with connection() as db:
+        if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
+            return jsonify(error="Post not found"),404
+        if request.method=="POST":
+            inserted=db.execute("""INSERT INTO reposts(post_id,username) VALUES(%s,%s)
+                                   ON CONFLICT DO NOTHING RETURNING id""",(post_id,g.username)).fetchone()
+            if inserted:
+                db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                              SELECT username,%s,'repost',id FROM posts
+                              WHERE id=%s AND username<>%s""",(g.username,post_id,g.username))
+        else:
+            db.execute("DELETE FROM reposts WHERE post_id=%s AND username=%s",(post_id,g.username))
+    return jsonify(status="okay",reposted=request.method=="POST")
+
+
+@app.get("/notifications")
+@auth_required
+def list_notifications():
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify(error="Invalid pagination"), 400
+    with connection() as db:
+        rows = db.execute("""SELECT id,actor,kind,post_id,created_at,read_at
+                             FROM notifications WHERE recipient=%s
+                             AND (%s=0 OR id<%s)
+                             ORDER BY id DESC LIMIT %s""",
+                          (g.username,before,before,limit+1)).fetchall()
+    page = rows[:limit]
+    return jsonify(notifications=[dict(row,created_at=row["created_at"].isoformat(),
+                                     read_at=row["read_at"].isoformat() if row["read_at"] else None)
+                                 for row in page],
+                   next_before=page[-1]["id"] if len(rows)>limit else None)
+
+
+@app.post("/notifications/<int:notification_id>/read")
+@auth_required
+def read_notification(notification_id):
+    with connection() as db:
+        row=db.execute("""UPDATE notifications SET read_at=COALESCE(read_at,now())
+                          WHERE id=%s AND recipient=%s RETURNING id""",
+                       (notification_id,g.username)).fetchone()
+    if not row:
+        return jsonify(error="Notification not found"),404
+    return jsonify(status="okay")
+
+
+@app.get("/notifications/summary")
+@auth_required
+def notification_summary():
+    with connection() as db:
+        unread=db.execute("""SELECT count(*) AS n FROM notifications
+                             WHERE recipient=%s AND read_at IS NULL""",(g.username,)).fetchone()["n"]
+        post_events=db.execute("""SELECT n.actor FROM notifications n
+            LEFT JOIN shelf_views v ON v.username=n.recipient
+            WHERE n.recipient=%s AND n.kind='post'
+              AND n.created_at>COALESCE(v.viewed_at,'epoch'::timestamptz)
+            ORDER BY n.id DESC LIMIT 5""",(g.username,)).fetchall()
+        unseen=db.execute("""SELECT count(*) AS n FROM notifications n
+            LEFT JOIN shelf_views v ON v.username=n.recipient
+            WHERE n.recipient=%s AND n.kind='post'
+            AND n.created_at>COALESCE(v.viewed_at,'epoch'::timestamptz)""",
+            (g.username,)).fetchone()["n"]
+    return jsonify(unread=unread,unseen_posts=unseen,
+                   latest_post_author=post_events[0]["actor"] if post_events else None,
+                   recent_post_authors=[row["actor"] for row in post_events])
+
+
+@app.get("/me/following")
+@auth_required
+def following():
+    with connection() as db:
+        rows = db.execute("SELECT followed FROM follows WHERE follower=%s ORDER BY followed",
+                          (g.username,)).fetchall()
+    return jsonify(users=[row["followed"] for row in rows])
+
+
+@app.post("/users/<username>/follow")
+@auth_required
+def follow(username):
+    with connection() as db:
+        user = db.execute("SELECT username FROM users WHERE lower(username)=lower(%s)",
+                          (username,)).fetchone()
+        if not user:
+            return jsonify(error="User not found"), 404
+        target = user["username"]
+        if target == g.username:
+            return jsonify(error="Cannot follow yourself"), 400
+        inserted=db.execute("""INSERT INTO follows(follower,followed) VALUES(%s,%s)
+                               ON CONFLICT DO NOTHING RETURNING follower""",
+                            (g.username,target)).fetchone()
+        if inserted:
+            db.execute("""INSERT INTO notifications(recipient,actor,kind)
+                          VALUES(%s,%s,'follow')""",(target,g.username))
+    return jsonify(status="okay", following=True)
+
+
+@app.delete("/users/<username>/follow")
+@auth_required
+def unfollow(username):
+    with connection() as db:
+        user = db.execute("SELECT username FROM users WHERE lower(username)=lower(%s)",
+                          (username,)).fetchone()
+        if not user:
+            return jsonify(error="User not found"), 404
+        db.execute("DELETE FROM follows WHERE follower=%s AND followed=%s",
+                   (g.username, user["username"]))
+    return jsonify(status="okay", following=False)
+
 
 @app.post("/posts")
 @auth_required
@@ -99,6 +368,9 @@ def post():
         return jsonify(error="Post must contain 1-2000 characters"), 400
     with connection() as db:
         row = db.execute("INSERT INTO posts(username,body) VALUES(%s,%s) RETURNING id", (g.username, body)).fetchone()
+        db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                      SELECT follower,%s,'post',%s FROM follows WHERE followed=%s""",
+                   (g.username,row["id"],g.username))
     return jsonify(id=row["id"]), 201
 
 @app.get("/users")
@@ -114,20 +386,78 @@ def search():
 @auth_required
 def profile(username):
     with connection() as db:
-        row = db.execute("SELECT username,bio,created_at FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
+        row = db.execute("SELECT username,bio,description,status,status_set_at,status_infinite,created_at FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
     if not row:
         return jsonify(error="User not found"), 404
-    return jsonify(username=row["username"], bio=row["bio"], created_at=row["created_at"].isoformat())
+    with connection() as db:
+        stats = db.execute("""SELECT
+          (SELECT count(*) FROM follows WHERE followed=%s) AS followers,
+          (SELECT count(*) FROM follows WHERE follower=%s) AS following_count,
+          EXISTS(SELECT 1 FROM follows WHERE follower=%s AND followed=%s) AS is_following""",
+          (row["username"], row["username"], g.username, row["username"])).fetchone()
+    return jsonify(username=row["username"], bio=row["bio"], description=row["description"],
+                   status=row["status"], status_set_at=row["status_set_at"].isoformat() if row["status_set_at"] else None,
+                   status_infinite=row["status_infinite"],
+                   created_at=row["created_at"].isoformat(),
+                   followers=stats["followers"], following_count=stats["following_count"],
+                   is_following=stats["is_following"], is_self=(row["username"]==g.username))
 
 @app.patch("/me")
 @auth_required
 def settings():
-    bio = str((request.get_json(silent=True) or {}).get("bio", ""))
-    if len(bio) > 160:
-        return jsonify(error="Bio too long"), 400
+    data = request.get_json(silent=True) or {}
+    allowed = {"bio", "description", "status", "status_infinite"}
+    if not isinstance(data, dict) or not data or set(data) - allowed:
+        return jsonify(error="Invalid settings"), 400
+    if "status_infinite" in data and "status" not in data:
+        return jsonify(error="Status duration requires a status"), 400
+    limits = {"bio": 160, "description": 10000, "status": 280}
+    for key, maximum in limits.items():
+        if key in data and (not isinstance(data[key], str) or len(data[key]) > maximum):
+            return jsonify(error="Invalid " + key), 400
+    if "status_infinite" in data and not isinstance(data["status_infinite"], bool):
+        return jsonify(error="Invalid status duration"), 400
     with connection() as db:
-        db.execute("UPDATE users SET bio=%s WHERE username=%s", (bio, g.username))
-    return jsonify(ok=True)
+        changed = False
+        if "bio" in data:
+            changed |= bool(db.execute("UPDATE users SET bio=%s WHERE username=%s AND bio IS DISTINCT FROM %s", (data["bio"], g.username, data["bio"])).rowcount)
+        if "description" in data:
+            changed |= bool(db.execute("UPDATE users SET description=%s WHERE username=%s AND description IS DISTINCT FROM %s", (data["description"], g.username, data["description"])).rowcount)
+        if "status" in data:
+            changed |= bool(db.execute("""UPDATE users SET status=%s,status_infinite=%s,
+                       status_set_at=CASE WHEN %s='' THEN NULL ELSE now() END
+                       WHERE username=%s AND (status IS DISTINCT FROM %s
+                         OR status_infinite IS DISTINCT FROM %s)""",
+                       (data["status"], data.get("status_infinite", False), data["status"],
+                        g.username, data["status"], data.get("status_infinite", False))).rowcount)
+        if changed:
+            db.execute("""INSERT INTO notifications(recipient,actor,kind)
+                          SELECT follower,%s,'profile' FROM follows WHERE followed=%s""",
+                       (g.username,g.username))
+    return jsonify(status="okay")
+
+
+@app.post("/me/password")
+@auth_required
+def change_password():
+    data = request.get_json(silent=True) or {}
+    old = str(data.get("current_password", ""))
+    new = str(data.get("new_password", ""))
+    if not 8 <= len(new) <= 1024:
+        return jsonify(error="New password must be 8-1024 characters"), 400
+    with connection() as db:
+        row = db.execute("SELECT salt,password_hash FROM users WHERE username=%s",
+                         (g.username,)).fetchone()
+        if not row or not hmac.compare_digest(hashed(old, bytes(row["salt"])),
+                                               bytes(row["password_hash"])):
+            return jsonify(error="Current password is incorrect"), 403
+        salt = secrets.token_bytes(16)
+        db.execute("UPDATE users SET salt=%s,password_hash=%s WHERE username=%s",
+                   (salt, hashed(new, salt), g.username))
+        token = request.headers["Authorization"].replace("Bearer ", "", 1).strip()
+        db.execute("DELETE FROM sessions WHERE username=%s AND token_hash<>%s",
+                   (g.username, hashlib.sha256(token.encode()).hexdigest()))
+    return jsonify(status="okay")
 
 @app.get("/health")
 def health():

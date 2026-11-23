@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from social import connect, register, authenticate, create_post, feed
+from legacy.social import connect, register, authenticate, create_post, feed
 
 
 class SocialTests(unittest.TestCase):
