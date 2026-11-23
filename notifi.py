@@ -3,7 +3,7 @@ from accounts import profile
 from posts import display
 
 
-_last_announcement = None
+_last_announcement = {}
 
 
 def announce(api):
@@ -11,14 +11,15 @@ def announce(api):
     global _last_announcement
     data=api.request("/notifications/summary")
     snapshot=(data.get("unread"),data.get("unseen_posts"),data.get("latest_post_author"))
-    if snapshot == _last_announcement:
+    identity = api.token
+    if snapshot == _last_announcement.get(identity):
         return
-    _last_announcement=snapshot
+    _last_announcement[identity]=snapshot
     count=data.get("unseen_posts",0)
     if count>=5:
         print("[Notification] You have {} unseen posts. Check your Shelf.".format(count))
     elif count:
-        author=data.get("latest_post_author")
+        author=data.get("latest_post_author") or "Someone"
         if count==1:
             print("[Notification] {} made a post.".format(author))
         else:
