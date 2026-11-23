@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, quote
 
-API = os.environ.get("SOCIAL_API_URL", "http://127.0.0.1:8000").rstrip("/")
+API = os.environ.get("SOCIAL_API_URL", "https://social.xylin48.site").rstrip("/")
 token = None
 
 def call(path, method="GET", payload=None):
@@ -84,7 +84,7 @@ def main():
                     pass
                 return
             elif action == "help":
-                print("post, book, feed, search USER, profile [USER], settings, clear, logout")
+                print("post, book, feed, search USER, profile [USER], settings, password, clear, logout")
             elif action == "post":
                 call("/posts", "POST", {"body": arg or input("Write your post: ")})
                 print("Post saved.")
@@ -100,6 +100,14 @@ def main():
                 profile = call("/users/" + quote(target, safe=""))
                 print(profile["username"] + " — " + (profile["bio"] or "(no bio)"))
                 display(call("/feed?" + urlencode({"username": target}))["posts"])
+            elif action == "password":
+                old = getpass.getpass("Current password: ")
+                new = getpass.getpass("New password: ")
+                if new != getpass.getpass("Confirm new password: "):
+                    print("Passwords do not match.")
+                else:
+                    call("/me/password", "POST", {"current_password": old, "new_password": new})
+                    print("Password changed.")
             elif action == "settings":
                 bio = input("New bio: ")
                 call("/me", "PATCH", {"bio": bio})
