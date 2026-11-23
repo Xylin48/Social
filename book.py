@@ -1,6 +1,7 @@
 """Book: the reading room for posts on the shared Social network."""
 from urllib.parse import urlencode
 from posts import display, interact
+from notifi import open_notifications
 
 
 def open_book(api):
@@ -28,7 +29,7 @@ def open_book(api):
         if action in ("back", "exit", "quit"):
             return
         if action in ("help", "?"):
-            print("feed, user USERNAME, next, view ID, like ID, unlike ID, repost ID, unrepost ID, back")
+            print("feed, user USERNAME, next, view ID, like ID, unlike ID, repost ID, unrepost ID, notifications, back")
         elif action in ("feed", ""):
             username, before = None, None
             next_before = show_page()
@@ -43,6 +44,8 @@ def open_book(api):
             else:
                 before = next_before
                 next_before = show_page()
+        elif action in ("notifications", "notifi"):
+            open_notifications(api)
         elif interact(api, command):
             pass
         else:
