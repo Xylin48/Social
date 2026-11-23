@@ -22,6 +22,8 @@ def living_room(api, username):
                     api.request("/logout", "POST", {})
                 except ValueError:
                     pass
+                finally:
+                    api.token = None
                 print("Goodbye.")
                 return
             if action in ("help", "?"):
