@@ -11,10 +11,10 @@ def announce(api):
     global _last_announcement
     data=api.request("/notifications/summary")
     snapshot=(data.get("unread"),data.get("unseen_posts"),tuple(data.get("recent_post_authors", [])))
-    identity = api.token
-    if snapshot == _last_announcement.get(identity):
+    session_id = api.token
+    if snapshot == _last_announcement.get(session_id):
         return
-    _last_announcement[identity]=snapshot
+    _last_announcement[session_id]=snapshot
     count=data.get("unseen_posts",0)
     if count>=5:
         print("[Notification] You have {} unseen posts. Check your Shelf.".format(count))
