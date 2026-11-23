@@ -63,11 +63,11 @@ def open_notifications(api):
         try:
             if item.get("post_id"):
                 post = api.request("/posts/{}".format(item["post_id"]))
-                api.request("/notifications/{}/read".format(item["id"]), "POST", {})
                 display([post])
-            elif item["kind"] in ("follow", "profile"):
                 api.request("/notifications/{}/read".format(item["id"]), "POST", {})
+            elif item["kind"] in ("follow", "profile"):
                 profile(api, item["actor"])
+                api.request("/notifications/{}/read".format(item["id"]), "POST", {})
             else:
                 print("The referenced content is unavailable.")
         except ValueError as exc:
