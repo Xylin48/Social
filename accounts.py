@@ -2,6 +2,7 @@
 import getpass
 from urllib.parse import quote, urlencode
 from posts import display
+from status import visible_status
 
 
 def sign_in(api):
@@ -29,6 +30,11 @@ def sign_in(api):
 def profile(api, username):
     data = api.request("/users/" + quote(username, safe=""))
     print(data["username"] + " — " + (data["bio"] or "(no bio)"))
+    status = visible_status(data)
+    if status:
+        print("Status: " + status)
+    if data.get("description"):
+        print("Description:\n" + data["description"])
     if "followers" in data:
         print("Followers: {} | Following: {}".format(data["followers"], data["following_count"]))
         if not data.get("is_self"):
