@@ -13,7 +13,7 @@ app = Flask(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Set DATABASE_URL to a hosted PostgreSQL connection string")
-TOKENS = {}
+
 
 def connection():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
@@ -29,6 +29,9 @@ def init_db():
           body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
         db.execute("CREATE INDEX IF NOT EXISTS posts_user_idx ON posts(username,id DESC)")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_lower_unique ON users(lower(username))")
+        db.execute("""CREATE TABLE IF NOT EXISTS sessions(
+          token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username)
+          ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL)""")
 
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
@@ -37,10 +40,14 @@ def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
         token = request.headers.get("Authorization", "").replace("Bearer ", "", 1).strip()
-        session = TOKENS.get(token)
-        if not session or session[1] < datetime.now(timezone.utc):
+        if not token:
             return jsonify(error="Unauthorized"), 401
-        g.username = session[0]
+        with connection() as db:
+            session = db.execute("SELECT username FROM sessions WHERE token_hash=%s AND expires_at>now()",
+                                 (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+        if not session:
+            return jsonify(error="Unauthorized"), 401
+        g.username = session["username"]
         return fn(*args, **kwargs)
     return wrapper
 
@@ -70,15 +77,20 @@ def login():
     if not row or not hmac.compare_digest(hashed(password, bytes(row["salt"])), bytes(row["password_hash"])):
         return jsonify(error="Invalid credentials"), 401
     token = secrets.token_urlsafe(40)
-    TOKENS[token] = (row["username"], datetime.now(timezone.utc) + timedelta(hours=12))
+    with connection() as db:
+        db.execute("INSERT INTO sessions(token_hash,username,expires_at) VALUES(%s,%s,%s)",
+                   (hashlib.sha256(token.encode()).hexdigest(), row["username"],
+                    datetime.now(timezone.utc) + timedelta(hours=12)))
     return jsonify(token=token, username=row["username"])
 
 @app.post("/logout")
 @auth_required
 def logout():
     token = request.headers["Authorization"].replace("Bearer ", "", 1).strip()
-    TOKENS.pop(token, None)
-    return jsonify(ok=True)
+    with connection() as db:
+        db.execute("DELETE FROM sessions WHERE token_hash=%s",
+                   (hashlib.sha256(token.encode()).hexdigest(),))
+    return jsonify(status="okay")
 
 @app.get("/feed")
 @auth_required
@@ -127,7 +139,29 @@ def settings():
         return jsonify(error="Bio too long"), 400
     with connection() as db:
         db.execute("UPDATE users SET bio=%s WHERE username=%s", (bio, g.username))
-    return jsonify(ok=True)
+    return jsonify(status="okay")
+
+@app.post("/me/password")
+@auth_required
+def change_password():
+    data = request.get_json(silent=True) or {}
+    old = str(data.get("current_password", ""))
+    new = str(data.get("new_password", ""))
+    if not 8 <= len(new) <= 1024:
+        return jsonify(error="New password must be 8-1024 characters"), 400
+    with connection() as db:
+        row = db.execute("SELECT salt,password_hash FROM users WHERE username=%s",
+                         (g.username,)).fetchone()
+        if not row or not hmac.compare_digest(hashed(old, bytes(row["salt"])),
+                                               bytes(row["password_hash"])):
+            return jsonify(error="Current password is incorrect"), 403
+        salt = secrets.token_bytes(16)
+        db.execute("UPDATE users SET salt=%s,password_hash=%s WHERE username=%s",
+                   (salt, hashed(new, salt), g.username))
+        token = request.headers["Authorization"].replace("Bearer ", "", 1).strip()
+        db.execute("DELETE FROM sessions WHERE username=%s AND token_hash<>%s",
+                   (g.username, hashlib.sha256(token.encode()).hexdigest()))
+    return jsonify(status="okay")
 
 @app.get("/health")
 def health():
