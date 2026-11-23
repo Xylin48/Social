@@ -1,5 +1,6 @@
 """HTTP connection shared by Social's terminal features."""
-import json\nimport socket
+import json
+import socket
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -21,12 +22,15 @@ class SocialAPI:
             headers["Content-Type"] = "application/json"
         try:
             with urlopen(Request(self.base_url + path, data=data, headers=headers, method=method), timeout=15) as response:
-                try:\n                    return json.load(response)\n                except (ValueError, UnicodeDecodeError) as exc:\n                    raise ValueError("Social server returned an invalid response") from exc
+                try:
+                    return json.load(response)
+                except (ValueError, UnicodeDecodeError) as exc:
+                    raise ValueError("Social server returned an invalid response") from exc
         except HTTPError as exc:
             try:
                 message = json.load(exc).get("error", str(exc))
             except Exception:
                 message = str(exc)
             raise ValueError(message) from exc
-        except URLError as exc:
+        except (URLError, TimeoutError, socket.timeout) as exc:
             raise ValueError("Cannot connect to Social server: " + str(exc.reason)) from exc
