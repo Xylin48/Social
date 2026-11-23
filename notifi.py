@@ -10,7 +10,7 @@ def announce(api):
     """Poll at a prompt boundary; never interrupt text being typed."""
     global _last_announcement
     data=api.request("/notifications/summary")
-    snapshot=(data.get("unread"),data.get("unseen_posts"),data.get("latest_post_author"))
+    snapshot=(data.get("unread"),data.get("unseen_posts"),tuple(data.get("recent_post_authors", [])))
     identity = api.token
     if snapshot == _last_announcement.get(identity):
         return
@@ -19,11 +19,9 @@ def announce(api):
     if count>=5:
         print("[Notification] You have {} unseen posts. Check your Shelf.".format(count))
     elif count:
-        author=data.get("latest_post_author") or "Someone"
-        if count==1:
+        authors = data.get("recent_post_authors") or []
+        for author in reversed(authors[:count]):
             print("[Notification] {} made a post.".format(author))
-        else:
-            print("[Notification] {} new posts, latest by {}. Check your Shelf.".format(count,author))
     elif data.get("unread",0):
         print("[Notification] You have {} unread notifications. Type notifications.".format(data["unread"]))
 
