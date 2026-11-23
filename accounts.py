@@ -7,7 +7,7 @@ from status import visible_status
 def sign_in(api):
     print("Social — connected terminal social network")
     while True:
-        action = input("\n[login] [register] [quit]\n>>> ").strip().lower()
+        action = input("\n[1. login] [2. register] [3. quit]\n>>> ").strip().lower()\n        action = {"1": "login", "2": "register", "3": "quit"}.get(action, action)
         if action == "quit":
             return None
         if action not in ("login", "register"):
