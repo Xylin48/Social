@@ -1,6 +1,6 @@
 """Shelf: posts from accounts the signed-in user follows."""
 from urllib.parse import urlencode
-from posts import display, interact
+from posts import display, interact, identity
 from notifi import open_notifications
 
 
