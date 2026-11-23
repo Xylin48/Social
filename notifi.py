@@ -46,10 +46,15 @@ def open_notifications(api):
             print("Select a notification number, or back.")
             continue
         item=items[int(choice)-1]
-        api.request("/notifications/{}/read".format(item["id"]),"POST",{})
-        if item.get("post_id"):
-            display([api.request("/posts/{}".format(item["post_id"]))])
-        elif item["kind"] in ("follow","profile"):
-            profile(api,item["actor"])
-        else:
-            print("The referenced content is unavailable.")
+        try:
+            if item.get("post_id"):
+                post = api.request("/posts/{}".format(item["post_id"]))
+                api.request("/notifications/{}/read".format(item["id"]), "POST", {})
+                display([post])
+            elif item["kind"] in ("follow", "profile"):
+                api.request("/notifications/{}/read".format(item["id"]), "POST", {})
+                profile(api, item["actor"])
+            else:
+                print("The referenced content is unavailable.")
+        except ValueError as exc:
+            print("Unable to open notification: {}".format(exc))
