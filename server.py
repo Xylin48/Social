@@ -27,6 +27,10 @@ def init_db():
           id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
           username TEXT NOT NULL REFERENCES users(username),
           body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT ''")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_set_at TIMESTAMPTZ")
+        db.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS status_infinite BOOLEAN NOT NULL DEFAULT FALSE")
         db.execute("CREATE INDEX IF NOT EXISTS posts_user_idx ON posts(username,id DESC)")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_lower_unique ON users(lower(username))")
         db.execute("""CREATE TABLE IF NOT EXISTS follows(
@@ -208,7 +212,7 @@ def search():
 @auth_required
 def profile(username):
     with connection() as db:
-        row = db.execute("SELECT username,bio,created_at FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
+        row = db.execute("SELECT username,bio,description,status,status_set_at,status_infinite,created_at FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
     if not row:
         return jsonify(error="User not found"), 404
     with connection() as db:
@@ -217,7 +221,7 @@ def profile(username):
           (SELECT count(*) FROM follows WHERE follower=%s) AS following_count,
           EXISTS(SELECT 1 FROM follows WHERE follower=%s AND followed=%s) AS is_following""",
           (row["username"], row["username"], g.username, row["username"])).fetchone()
-    return jsonify(username=row["username"], bio=row["bio"],
+    return jsonify(username=row["username"], bio=row["bio"], description=row["description"],\n                   status=row["status"], status_set_at=row["status_set_at"].isoformat() if row["status_set_at"] else None,\n                   status_infinite=row["status_infinite"],
                    created_at=row["created_at"].isoformat(),
                    followers=stats["followers"], following_count=stats["following_count"],
                    is_following=stats["is_following"], is_self=(row["username"]==g.username))
@@ -225,12 +229,29 @@ def profile(username):
 @app.patch("/me")
 @auth_required
 def settings():
-    bio = str((request.get_json(silent=True) or {}).get("bio", ""))
-    if len(bio) > 160:
-        return jsonify(error="Bio too long"), 400
+    data = request.get_json(silent=True) or {}
+    allowed = {"bio", "description", "status", "status_infinite"}
+    if not isinstance(data, dict) or not data or set(data) - allowed:
+        return jsonify(error="Invalid settings"), 400
+    if "status_infinite" in data and "status" not in data:
+        return jsonify(error="Status duration requires a status"), 400
+    limits = {"bio": 160, "description": 10000, "status": 280}
+    for key, maximum in limits.items():
+        if key in data and (not isinstance(data[key], str) or len(data[key]) > maximum):
+            return jsonify(error="Invalid " + key), 400
+    if "status_infinite" in data and not isinstance(data["status_infinite"], bool):
+        return jsonify(error="Invalid status duration"), 400
     with connection() as db:
-        db.execute("UPDATE users SET bio=%s WHERE username=%s", (bio, g.username))
+        if "bio" in data:
+            db.execute("UPDATE users SET bio=%s WHERE username=%s", (data["bio"], g.username))
+        if "description" in data:
+            db.execute("UPDATE users SET description=%s WHERE username=%s", (data["description"], g.username))
+        if "status" in data:
+            db.execute("""UPDATE users SET status=%s,status_infinite=%s,
+                       status_set_at=CASE WHEN %s='' THEN NULL ELSE now() END WHERE username=%s""",
+                       (data["status"], data.get("status_infinite", False), data["status"], g.username))
     return jsonify(status="okay")
+
 
 @app.post("/me/password")
 @auth_required
