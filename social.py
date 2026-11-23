@@ -119,7 +119,7 @@ def main():
                 print('Goodbye.')
                 return
             elif action == 'help':
-                print('Commands: post, feed, search USER, profile [USER], settings, clear, help, logout')
+                print('Commands: post, book, feed, search USER, profile [USER], settings, clear, help, logout')
             elif action == 'clear':
                 print('\033[2J\033[H', end='')
             elif action == 'post':
@@ -164,7 +164,8 @@ def main():
                             salt = secrets.token_bytes(16)
                             db.execute('UPDATE users SET salt=?,password_hash=? WHERE username=?', (salt, digest(new,salt), user)); db.commit(); print('Password changed.')
             elif action == 'book':
-                print('PyOs book integration is not included in standalone Social.')
+                from book import open_book
+                open_book(db, user)
             elif command:
                 print('Unknown command. Type help.')
         except (EOFError, KeyboardInterrupt):
