@@ -5,6 +5,7 @@ from contextlib import redirect_stdout
 from unittest.mock import patch
 
 from api import SocialAPI
+from accounts import profile
 from book import open_book
 from social import living_room
 
@@ -20,7 +21,7 @@ class FakeAPI:
             return {"posts": [], "next_before": None}
         if path == "/me/following":
             return {"users": ["Alice"]}
-        if path.startswith("/users?"):
+        if path.startswith("/users/") and not path.endswith("/follow"):\n            username = path.split("/")[2]\n            return {"username": username, "bio": "Hello", "description": "My page", "status": "",\n                    "followers": 2, "following_count": 4, "is_self": username == "test"}\n        if path.startswith("/users?"):
             return {"users": []}
         return {"status": "okay"}
 
@@ -56,6 +57,22 @@ class NetworkRoomsTests(unittest.TestCase):
             living_room(api, "test")
         self.assertEqual(api.calls[0][:2], ("/users/Alice/follow", "POST"))
         self.assertEqual(api.calls[1][:2], ("/users/Alice/follow", "DELETE"))
+
+    def test_profile_numbered_follow_and_named_unfollow(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["1", "unfollow", "3"]), redirect_stdout(io.StringIO()) as output:
+            profile(api, "Alice")
+        self.assertIn("Welcome to Alice's profile", output.getvalue())
+        self.assertIn("[1. follow] [2. unfollow] [3. back]", output.getvalue())
+        self.assertEqual([call[:2] for call in api.calls if call[0].endswith("/follow")],
+                         [("/users/Alice/follow", "POST"), ("/users/Alice/follow", "DELETE")])
+
+    def test_own_profile_edit_and_back(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["edit", "5", "back"]), redirect_stdout(io.StringIO()) as output:
+            profile(api, "test")
+        self.assertIn("[1. edit] [2. posts] [3. back]", output.getvalue())
+        self.assertIn("ACCOUNT SETTINGS", output.getvalue())
 
     def test_post_is_sent_to_server(self):
         api = FakeAPI()
