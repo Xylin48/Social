@@ -409,16 +409,16 @@ def settings():
     with connection() as db:
         changed = False
         if "bio" in data:
-            db.execute("UPDATE users SET bio=%s WHERE username=%s AND bio IS DISTINCT FROM %s", (data["bio"], g.username, data["bio"]))
-            changed = True
+            changed |= bool(db.execute("UPDATE users SET bio=%s WHERE username=%s AND bio IS DISTINCT FROM %s", (data["bio"], g.username, data["bio"])).rowcount)
         if "description" in data:
-            db.execute("UPDATE users SET description=%s WHERE username=%s AND description IS DISTINCT FROM %s", (data["description"], g.username, data["description"]))
-            changed = True
+            changed |= bool(db.execute("UPDATE users SET description=%s WHERE username=%s AND description IS DISTINCT FROM %s", (data["description"], g.username, data["description"])).rowcount)
         if "status" in data:
-            changed = True
-            db.execute("""UPDATE users SET status=%s,status_infinite=%s,
-                       status_set_at=CASE WHEN %s='' THEN NULL ELSE now() END WHERE username=%s""",
-                       (data["status"], data.get("status_infinite", False), data["status"], g.username))
+            changed |= bool(db.execute("""UPDATE users SET status=%s,status_infinite=%s,
+                       status_set_at=CASE WHEN %s='' THEN NULL ELSE now() END
+                       WHERE username=%s AND (status IS DISTINCT FROM %s
+                         OR status_infinite IS DISTINCT FROM %s)""",
+                       (data["status"], data.get("status_infinite", False), data["status"],
+                        g.username, data["status"], data.get("status_infinite", False))).rowcount)
         if changed:
             db.execute("""INSERT INTO notifications(recipient,actor,kind)
                           SELECT follower,%s,'profile' FROM follows WHERE followed=%s""",
