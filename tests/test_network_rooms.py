@@ -74,6 +74,26 @@ class NetworkRoomsTests(unittest.TestCase):
         self.assertIn("[1. edit] [2. posts] [3. back]", output.getvalue())
         self.assertIn("ACCOUNT SETTINGS", output.getvalue())
 
+    def test_numbered_book_navigation(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["1", "4"]), redirect_stdout(io.StringIO()):
+            open_book(api)
+        self.assertEqual([c[0] for c in api.calls], ["/feed", "/feed"])
+
+    def test_numbered_shelf_navigation(self):
+        from shelf import open_shelf
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["3", "4"]), redirect_stdout(io.StringIO()):
+            open_shelf(api)
+        self.assertEqual([c[0] for c in api.calls], ["/shelf", "/me/following"])
+
+    def test_numbered_living_room_navigation(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["1", "4", "7"]), redirect_stdout(io.StringIO()):
+            living_room(api, "test")
+        self.assertEqual(api.calls[0][0], "/feed")
+        self.assertEqual(api.calls[-1][0], "/logout")
+
     def test_post_is_sent_to_server(self):
         api = FakeAPI()
         with patch("builtins.input", side_effect=["post Hello world", "logout"]), redirect_stdout(io.StringIO()):
