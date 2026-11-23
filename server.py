@@ -36,7 +36,7 @@ def hashed(password, salt):
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        token = request.headers.get("Authorization", "").replace("Bearer ", "", 1).strip()
         session = TOKENS.get(token)
         if not session or session[1] < datetime.now(timezone.utc):
             return jsonify(error="Unauthorized"), 401
@@ -76,7 +76,7 @@ def login():
 @app.post("/logout")
 @auth_required
 def logout():
-    token = request.headers["Authorization"].removeprefix("Bearer ").strip()
+    token = request.headers["Authorization"].replace("Bearer ", "", 1).strip()
     TOKENS.pop(token, None)
     return jsonify(ok=True)
 
@@ -133,7 +133,6 @@ def settings():
 def health():
     return jsonify(status="ok")
 
-init_db()
-
 if __name__ == "__main__":
+    init_db()
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))
