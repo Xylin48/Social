@@ -38,8 +38,6 @@ def open_shelf(api):
         elif command == "following":
             users = api.request("/me/following")["users"]
             print("\n".join(users) if users else "You aren't following anyone yet.")
-        elif action in ("notifications", "notifi"):
-            open_notifications(api)
         elif command.lower() in ("notifications", "notifi"):
             open_notifications(api)
         elif interact(api, command):
