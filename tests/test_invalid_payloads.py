@@ -38,5 +38,32 @@ class InvalidPayloadTests(unittest.TestCase):
                         self.assertEqual(response.status_code, 400)
 
 
+    def test_register_and_login_reject_non_string_credentials(self):
+        for path in ("/register", "/login"):
+            for field in ("username", "password"):
+                for value in (None, 42, [], {"nested": "value"}, True):
+                    payload = {"username": "tester", "password": "valid-password"}
+                    payload[field] = value
+                    with self.subTest(path=path, field=field, value=value):
+                        response = self.client.post(path, json=payload)
+                        self.assertEqual(response.status_code, 400)
+
+    def test_post_and_password_reject_non_string_fields(self):
+        with patch("server.connection") as connect:
+            connect.return_value.__enter__.return_value.execute.return_value.fetchone.return_value = {"username": "tester"}
+            for value in (None, 42, [], {"nested": "value"}, True):
+                with self.subTest(field="body", value=value):
+                    response = self.client.post("/posts", json={"body": value},
+                        headers={"Authorization": "Bearer test-token"})
+                    self.assertEqual(response.status_code, 400)
+                for field in ("current_password", "new_password"):
+                    payload = {"current_password": "old-password", "new_password": "new-password"}
+                    payload[field] = value
+                    with self.subTest(field=field, value=value):
+                        response = self.client.post("/me/password", json=payload,
+                            headers={"Authorization": "Bearer test-token"})
+                        self.assertEqual(response.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
