@@ -1,28 +1,44 @@
-"""Book: browse the shared collection of Social posts.
-
-The original PyOs book.py was a placeholder that imported social.py.
-This standalone implementation provides a post-reading view without
-claiming the original placeholder had working reading functionality.
-"""
+"""Book: the reading room for posts on the shared Social network."""
+from urllib.parse import urlencode
+from posts import display
 
 
-def open_book(db, username):
-    from social import feed, show_posts
-    print(f'\n{username}\'s Book — recent posts')
-    show_posts(feed(db))
+def open_book(api):
+    print("\nBOOK — Public posts")
+    before = None
+    username = None
+
+    def show_page():
+        params = {}
+        if username:
+            params["username"] = username
+        if before:
+            params["before"] = before
+        path = "/feed" + ("?" + urlencode(params) if params else "")
+        result = api.request(path)
+        display(result["posts"])
+        return result.get("next_before")
+
+    next_before = show_page()
     while True:
-        command = input('book>>> ').strip()
-        action, _, arg = command.partition(' ')
-        if action in ('back', 'exit', 'quit'):
+        command = input("book>>> ").strip()
+        action, _, argument = command.partition(" ")
+        action = action.lower()
+        if action in ("back", "exit", "quit"):
             return
-        if action in ('help', '?'):
-            print('Commands: feed, user USERNAME, back')
-        elif action in ('feed', ''):
-            show_posts(feed(db))
-        elif action == 'user':
-            if arg:
-                show_posts(feed(db, arg))
+        if action in ("help", "?"):
+            print("feed, user USERNAME, next, back")
+        elif action in ("feed", ""):
+            username, before = None, None
+            next_before = show_page()
+        elif action == "user" and argument:
+            username, before = argument, None
+            next_before = show_page()
+        elif action == "next":
+            if next_before is None:
+                print("End of posts.")
             else:
-                print('Usage: user USERNAME')
+                before = next_before
+                next_before = show_page()
         else:
-            print('Unknown Book command. Type help.')
+            print("Unknown Book command. Type help.")
