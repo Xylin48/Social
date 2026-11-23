@@ -28,6 +28,7 @@ def init_db():
           username TEXT NOT NULL REFERENCES users(username),
           body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
         db.execute("CREATE INDEX IF NOT EXISTS posts_user_idx ON posts(username,id DESC)")
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_lower_unique ON users(lower(username))")
 
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
@@ -132,6 +133,7 @@ def settings():
 def health():
     return jsonify(status="ok")
 
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))
