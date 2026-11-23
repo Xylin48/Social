@@ -46,7 +46,7 @@ Login, the living room, Book, Shelf, profile pages, and Settings accept either t
 
 ## Developer Easter egg
 
-The server owns the global `[dev]` badge. Set `SOCIAL_DEV_USERS` to a comma-separated list of **existing Social account usernames** (for example `SOCIAL_DEV_USERS=Xylin48` if that is your actual Social login). Matching is case-insensitive. Restart the server after changing this variable. Never grant the badge based on a client-provided flag or a password shortcut. Leave the variable unset for no developer accounts.
+The server owns the global `[dev]` badge. By default the exact Social username `Xylin48` receives the badge. Set `SOCIAL_DEV_USERS` to a comma-separated list of **existing Social account usernames** (for example `SOCIAL_DEV_USERS=Xylin48` if that is your actual Social login). Matching is case-insensitive. Restart the server after changing this variable. Never grant the badge based on a client-provided flag or a password shortcut. Set `SOCIAL_DEV_USERS` to an empty string to disable all developer badges.
 
 The server includes `is_dev` in successful login, profile, post/feed, shelf, and notification records, plus author badge mappings for username lists and recent post announcements. Updated terminal clients display `[dev]` beside developer names on the welcome screen, profile pages, posts, reposts, notifications, following lists, and search results. The marker is not part of the username and is not stored in user-submitted content. The server is authoritative, so a different client cannot assign the badge to itself.
 
