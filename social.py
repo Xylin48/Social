@@ -48,8 +48,9 @@ def living_room(api, username):
                                 "POST" if action == "follow" else "DELETE")
                     print("Following updated.")
             elif action == "following":
-                users = api.request("/me/following")["users"]
-                print("\n".join(users) if users else "You aren't following anyone yet.")
+                result = api.request("/me/following")
+                users = result["users"]
+                print("\n".join(identity(u, result.get("user_badges", {}).get(u)) for u in users) if users else "You aren\'t following anyone yet.")
             elif action == "feed":
                 display(api.request("/feed")["posts"])
             elif action == "search":
