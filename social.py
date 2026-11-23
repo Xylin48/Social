@@ -26,6 +26,7 @@ def living_room(api, username):
                     pass
                 finally:
                     api.token = None
+                    api.is_dev = False
                 print("Goodbye.")
                 return
             if action in ("help", "?"):
