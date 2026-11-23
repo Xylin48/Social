@@ -187,11 +187,11 @@ def shelf():
                    EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=events.post_id AND l.username=%s) AS liked_by_me,
                    EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=events.post_id AND r.username=%s) AS reposted_by_me
             FROM (
-              SELECT (extract(epoch from p.created_at)*1000000)::bigint AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
+              SELECT ((extract(epoch from p.created_at)*1000000)::numeric * 1000000000000000 + p.id*2) AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
                      NULL::text AS reposted_by
               FROM posts p JOIN follows f ON f.followed=p.username WHERE f.follower=%s
               UNION ALL
-              SELECT (extract(epoch from r.created_at)*1000000)::bigint AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
+              SELECT ((extract(epoch from r.created_at)*1000000)::numeric * 1000000000000000 + r.id*2+1) AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
                      r.username AS reposted_by
               FROM reposts r JOIN posts p ON p.id=r.post_id
               JOIN follows f ON f.followed=r.username WHERE f.follower=%s
@@ -205,8 +205,8 @@ def shelf():
             db.execute("""UPDATE notifications SET read_at=now()
                           WHERE recipient=%s AND kind='post' AND read_at IS NULL""",(g.username,))
     page = rows[:limit]
-    return jsonify(posts=[dict(row, id=row["post_id"], created_at=row["created_at"].isoformat()) for row in page],
-                   next_before=page[-1]["event_id"] if len(rows)>limit else None)
+    return jsonify(posts=[dict(row, id=row["post_id"], event_id=str(row["event_id"]), created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=str(page[-1]["event_id"]) if len(rows)>limit else None)
 
 
 @app.get("/posts/<int:post_id>")
