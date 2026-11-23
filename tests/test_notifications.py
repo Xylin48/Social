@@ -78,6 +78,37 @@ class NotificationsTest(unittest.TestCase):
         self.assertIn(("/notifications/7/read", "POST"), api.calls)
         self.assertIn(("/posts/42", "GET"), api.calls)
 
+    def test_missing_post_does_not_mark_notification_read(self):
+        api = FakeAPI()
+        original = api.request
+
+        def request(path, method="GET", payload=None):
+            if path == "/posts/42":
+                raise ValueError("Post not found")
+            return original(path, method, payload)
+
+        api.request = request
+        output = io.StringIO()
+        with patch("builtins.input", side_effect=["1", "back"]), contextlib.redirect_stdout(output):
+            notifi.open_notifications(api)
+        self.assertIn("Unable to open notification", output.getvalue())
+        self.assertNotIn(("/notifications/7/read", "POST"), api.calls)
+
+    def test_unread_notifications_are_not_mixed_into_shelf(self):
+        from shelf import open_shelf
+        api = FakeAPI()
+        original = api.request
+
+        def request(path, method="GET", payload=None):
+            if path.startswith("/shelf"):
+                return {"posts": [], "next_before": None}
+            return original(path, method, payload)
+
+        api.request = request
+        with patch("builtins.input", side_effect=["back"]), contextlib.redirect_stdout(io.StringIO()):
+            open_shelf(api)
+        self.assertNotIn(("/notifications", "GET"), api.calls)
+
     def test_profile_notification_opens_profile(self):
         api = FakeAPI()
         with patch("builtins.input", side_effect=["2", "back"]), patch.object(notifi, "profile") as profile:
