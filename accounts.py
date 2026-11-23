@@ -43,14 +43,18 @@ def profile(api, username):
         print("\nDescription:\n" + (data.get("description") or "(none)"))
         print("────────────────────────────")
         if owner:
-            print("[1. edit] [2. posts] [3. back]")
+            print("[1. edit] [2. posts] [3. back] [notifications]")
         else:
-            print("[1. follow] [2. unfollow] [3. back]")
+            print("[1. follow] [2. unfollow] [3. back] [notifications]")
         try:
             choice = input("profile>>> ").strip().lower()
         except (KeyboardInterrupt, EOFError):
             print()
             return
+        if choice in ("notifications", "notifi"):
+            from notifi import open_notifications
+            open_notifications(api)
+            continue
         if choice in ("3", "back"):
             return
         if owner:
