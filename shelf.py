@@ -1,6 +1,7 @@
 """Shelf: posts from accounts the signed-in user follows."""
 from urllib.parse import urlencode
 from posts import display, interact
+from notifi import open_notifications
 
 
 def open_shelf(api):
@@ -24,7 +25,7 @@ def open_shelf(api):
         if command in ("back", "exit", "quit"):
             return
         if command in ("help", "?"):
-            print("refresh, next, following, view ID, like ID, unlike ID, repost ID, unrepost ID, back")
+            print("refresh, next, following, view ID, like ID, unlike ID, repost ID, unrepost ID, notifications, back")
         elif command in ("refresh", ""):
             before = None
             next_before = show_page()
@@ -37,6 +38,10 @@ def open_shelf(api):
         elif command == "following":
             users = api.request("/me/following")["users"]
             print("\n".join(users) if users else "You aren't following anyone yet.")
+        elif action in ("notifications", "notifi"):
+            open_notifications(api)
+        elif command.lower() in ("notifications", "notifi"):
+            open_notifications(api)
         elif interact(api, command):
             pass
         else:
