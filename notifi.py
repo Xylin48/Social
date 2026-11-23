@@ -27,8 +27,12 @@ def announce(api):
 
 
 def open_notifications(api):
+    before = None
     while True:
-        items=api.request("/notifications").get("notifications",[])
+        path = "/notifications" + ("?before={}".format(before) if before else "")
+        result = api.request(path)
+        items = result.get("notifications", [])
+        next_before = result.get("next_before")
         print("\nNOTIFICATIONS")
         if not items:
             print("No notifications.")
@@ -39,7 +43,17 @@ def open_notifications(api):
                      "repost":"{} reposted your post","follow":"{} started following you",
                      "profile":"{} updated their profile"}.get(kind,"{} activity").format(actor)
             print("{}. {}{}.".format(i,"● " if not item.get("read_at") else "",message))
+        print("Type next for older notifications, or back to return." if next_before else "Type back to return.")
         choice=input("notifi>>> ").strip().lower()
+        if choice == "next":
+            if next_before is None:
+                print("End of notifications.")
+            else:
+                before = next_before
+            continue
+        if choice == "refresh":
+            before = None
+            continue
         if choice in ("back","exit","quit","0",""):
             return
         if not choice.isdigit() or not 1<=int(choice)<=len(items):
