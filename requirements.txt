@@ -1,3 +1,2 @@
-Flask>=3.0,<4
-psycopg[binary]>=3.2,<4
-gunicorn>=22,<24
+Flask>=2.3.3,<3
+psycopg[binary]>=3.1.12,<3.2
