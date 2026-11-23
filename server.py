@@ -293,15 +293,18 @@ def notification_summary():
         unread=db.execute("""SELECT count(*) AS n FROM notifications
                              WHERE recipient=%s AND read_at IS NULL""",(g.username,)).fetchone()["n"]
         post_events=db.execute("""SELECT n.actor FROM notifications n
-            WHERE n.recipient=%s AND n.kind='post' AND n.read_at IS NULL
-            ORDER BY n.id DESC LIMIT 1""",(g.username,)).fetchone()
+            LEFT JOIN shelf_views v ON v.username=n.recipient
+            WHERE n.recipient=%s AND n.kind='post'
+              AND n.created_at>COALESCE(v.viewed_at,'epoch'::timestamptz)
+            ORDER BY n.id DESC LIMIT 5""",(g.username,)).fetchall()
         unseen=db.execute("""SELECT count(*) AS n FROM notifications n
             LEFT JOIN shelf_views v ON v.username=n.recipient
             WHERE n.recipient=%s AND n.kind='post'
             AND n.created_at>COALESCE(v.viewed_at,'epoch'::timestamptz)""",
             (g.username,)).fetchone()["n"]
     return jsonify(unread=unread,unseen_posts=unseen,
-                   latest_post_author=post_events["actor"] if post_events else None)
+                   latest_post_author=post_events[0]["actor"] if post_events else None,
+                   recent_post_authors=[row["actor"] for row in post_events])
 
 
 @app.get("/me/following")
