@@ -6,12 +6,14 @@ from book import open_book
 from shelf import open_shelf
 from posts import display, publish
 from settings import menu as settings_menu
+from notifi import announce, open_notifications
 
 
 def living_room(api, username):
     print("\nWelcome to Social, {}. Type help to explore.".format(username))
     while True:
         try:
+            announce(api)
             print("[1. book] [2. shelf] [3. post] [4. profile] [5. settings] [6. help] [7. logout]")
             command = input("social>>> ").strip()
             action, _, argument = command.partition(" ")
@@ -27,7 +29,9 @@ def living_room(api, username):
                 print("Goodbye.")
                 return
             if action in ("help", "?"):
-                print("post, book, shelf, feed, search USER, profile [USER], follow USER, unfollow USER, following, settings, clear, logout")
+                print("post, book, shelf, feed, search USER, profile [USER], follow USER, unfollow USER, following, notifications, settings, clear, logout")
+            elif action in ("notifications", "notifi"):
+                open_notifications(api)
             elif action == "post":
                 publish(api, argument or input("Write your post: "))
             elif action == "book":
