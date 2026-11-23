@@ -29,4 +29,9 @@ def sign_in(api):
 def profile(api, username):
     data = api.request("/users/" + quote(username, safe=""))
     print(data["username"] + " — " + (data["bio"] or "(no bio)"))
+    if "followers" in data:
+        print("Followers: {} | Following: {}".format(data["followers"], data["following_count"]))
+        if not data.get("is_self"):
+            print("You follow this user." if data.get("is_following") else "You do not follow this user.")
+            print("Use 'follow {}' or 'unfollow {}' in Social.".format(data["username"], data["username"]))
     display(api.request("/feed?" + urlencode({"username": username}))["posts"])
