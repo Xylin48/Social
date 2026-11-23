@@ -21,9 +21,11 @@ class FakeAPI:
             return {"posts": [], "next_before": None}
         if path == "/me/following":
             return {"users": ["Alice"]}
-        if path.startswith("/users/") and not path.endswith("/follow"):\n            username = path.split("/")[2]
-            return {"username": username, "bio": "Hello", "description": "My page", "status": "",
-                    "followers": 2, "following_count": 4, "is_self": username == "test"}
+        if path.startswith("/users/") and not path.endswith("/follow"):
+            username = path.split("/")[2]
+            return {"username": username, "bio": "Hello", "description": "My page",
+                    "status": "", "followers": 2, "following_count": 4,
+                    "is_self": username == "test"}
         if path.startswith("/users?"):
             return {"users": []}
         return {"status": "okay"}
