@@ -1,5 +1,6 @@
 """Account settings: bio, timed status, description, and password."""
 import getpass
+from notifi import open_notifications
 
 
 def read_description():
@@ -20,8 +21,11 @@ def menu(api):
     while True:
         print("\nACCOUNT SETTINGS")
         print("1. Edit bio  2. Edit status  3. Edit description")
-        print("4. Change password  5. Back")
+        print("4. Change password  5. Back  |  notifications")
         choice = input("settings>>> ").strip().lower()
+        if choice in ("notifications", "notifi"):
+            open_notifications(api)
+            continue
         if choice in ("5", "back", "exit", "quit"):
             return
         if choice in ("1", "bio", "edit bio"):
