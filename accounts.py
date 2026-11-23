@@ -7,7 +7,8 @@ from status import visible_status
 def sign_in(api):
     print("Social — connected terminal social network")
     while True:
-        action = input("\n[1. login] [2. register] [3. quit]\n>>> ").strip().lower()\n        action = {"1": "login", "2": "register", "3": "quit"}.get(action, action)
+        action = input("\n[1. login] [2. register] [3. quit]\n>>> ").strip().lower()
+        action = {"1": "login", "2": "register", "3": "quit"}.get(action, action)
         if action == "quit":
             return None
         if action not in ("login", "register"):
@@ -45,7 +46,11 @@ def profile(api, username):
             print("[1. edit] [2. posts] [3. back]")
         else:
             print("[1. follow] [2. unfollow] [3. back]")
-        try:\n            choice = input("profile>>> ").strip().lower()\n        except (KeyboardInterrupt, EOFError):\n            print()\n            return
+        try:
+            choice = input("profile>>> ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            return
         if choice in ("3", "back"):
             return
         if owner:
@@ -55,7 +60,10 @@ def profile(api, username):
             elif choice in ("2", "posts"):
                 from posts import display
                 display(api.request("/feed?" + urlencode({"username": data["username"]}))["posts"])
-                try:\n                    input("Press Enter to return to profile... ")\n                except (KeyboardInterrupt, EOFError):\n                    return
+                try:
+                    input("Press Enter to return to profile... ")
+                except (KeyboardInterrupt, EOFError):
+                    return
             else:
                 print("Unknown command.")
         else:
