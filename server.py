@@ -94,7 +94,9 @@ def auth_required(fn):
 
 @app.post("/register")
 def register():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
     username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
     if not 3 <= len(username) <= 32 or not all(c.isascii() and (c.isalnum() or c == "_") for c in username):
         return jsonify(error="Username must be 3-32 ASCII letters, digits or underscores"), 400
@@ -111,7 +113,9 @@ def register():
 
 @app.post("/login")
 def login():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
     username, password = str(data.get("username", "")), str(data.get("password", ""))
     with connection() as db:
         row = db.execute("SELECT username,salt,password_hash FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
@@ -363,7 +367,10 @@ def unfollow(username):
 @app.post("/posts")
 @auth_required
 def post():
-    body = str((request.get_json(silent=True) or {}).get("body", "")).strip()
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
+    body = str(data.get("body", "")).strip()
     if not 1 <= len(body) <= 2000:
         return jsonify(error="Post must contain 1-2000 characters"), 400
     with connection() as db:
