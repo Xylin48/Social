@@ -29,6 +29,13 @@ def init_db():
           body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
         db.execute("CREATE INDEX IF NOT EXISTS posts_user_idx ON posts(username,id DESC)")
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_lower_unique ON users(lower(username))")
+        db.execute("""CREATE TABLE IF NOT EXISTS follows(
+          follower TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          followed TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY(follower, followed),
+          CHECK (follower <> followed))""")
+        db.execute("CREATE INDEX IF NOT EXISTS follows_followed_idx ON follows(followed)")
         db.execute("""CREATE TABLE IF NOT EXISTS sessions(
           token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username)
           ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL)""")
@@ -118,6 +125,66 @@ def feed():
                    next_before=page[-1]["id"] if has_more else None)
 
 
+@app.get("/shelf")
+@auth_required
+def shelf():
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify(error="Invalid pagination"), 400
+    with connection() as db:
+        rows = db.execute("""
+            SELECT p.id,p.username,p.body,p.created_at FROM posts p
+            JOIN follows f ON f.followed=p.username
+            WHERE f.follower=%s AND (%s=0 OR p.id<%s)
+            ORDER BY p.id DESC LIMIT %s
+        """, (g.username, before, before, limit + 1)).fetchall()
+    page = rows[:limit]
+    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=page[-1]["id"] if len(rows)>limit else None)
+
+
+@app.get("/me/following")
+@auth_required
+def following():
+    with connection() as db:
+        rows = db.execute("SELECT followed FROM follows WHERE follower=%s ORDER BY followed",
+                          (g.username,)).fetchall()
+    return jsonify(users=[row["followed"] for row in rows])
+
+
+@app.post("/users/<username>/follow")
+@auth_required
+def follow(username):
+    with connection() as db:
+        user = db.execute("SELECT username FROM users WHERE lower(username)=lower(%s)",
+                          (username,)).fetchone()
+        if not user:
+            return jsonify(error="User not found"), 404
+        target = user["username"]
+        if target == g.username:
+            return jsonify(error="Cannot follow yourself"), 400
+        db.execute("INSERT INTO follows(follower,followed) VALUES(%s,%s) ON CONFLICT DO NOTHING",
+                   (g.username, target))
+    return jsonify(status="okay", following=True)
+
+
+@app.delete("/users/<username>/follow")
+@auth_required
+def unfollow(username):
+    with connection() as db:
+        user = db.execute("SELECT username FROM users WHERE lower(username)=lower(%s)",
+                          (username,)).fetchone()
+        if not user:
+            return jsonify(error="User not found"), 404
+        db.execute("DELETE FROM follows WHERE follower=%s AND followed=%s",
+                   (g.username, user["username"]))
+    return jsonify(status="okay", following=False)
+
+
 @app.post("/posts")
 @auth_required
 def post():
@@ -144,7 +211,16 @@ def profile(username):
         row = db.execute("SELECT username,bio,created_at FROM users WHERE lower(username)=lower(%s)", (username,)).fetchone()
     if not row:
         return jsonify(error="User not found"), 404
-    return jsonify(username=row["username"], bio=row["bio"], created_at=row["created_at"].isoformat())
+    with connection() as db:
+        stats = db.execute("""SELECT
+          (SELECT count(*) FROM follows WHERE followed=%s) AS followers,
+          (SELECT count(*) FROM follows WHERE follower=%s) AS following_count,
+          EXISTS(SELECT 1 FROM follows WHERE follower=%s AND followed=%s) AS is_following""",
+          (row["username"], row["username"], g.username, row["username"])).fetchone()
+    return jsonify(username=row["username"], bio=row["bio"],
+                   created_at=row["created_at"].isoformat(),
+                   followers=stats["followers"], following_count=stats["following_count"],
+                   is_following=stats["is_following"], is_self=(row["username"]==g.username))
 
 @app.patch("/me")
 @auth_required
