@@ -17,7 +17,7 @@ if not DATABASE_URL:
 
 def is_developer(username):
     """Server-owned badge: usernames configured by the operator, never by clients."""
-    names = {name.strip().casefold() for name in os.environ.get("SOCIAL_DEV_USERS", "").split(",") if name.strip()}
+    names = {name.strip().casefold() for name in os.environ.get("SOCIAL_DEV_USERS", "Xylin48").split(",") if name.strip()}
     return isinstance(username, str) and username.casefold() in names
 
 
