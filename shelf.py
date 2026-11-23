@@ -18,7 +18,9 @@ def open_shelf(api):
 
     next_before = show_page()
     while True:
+        print("[1. refresh] [2. next] [3. following] [4. back]")
         command = input("shelf>>> ").strip().lower()
+        command = {"1": "refresh", "2": "next", "3": "following", "4": "back"}.get(command, command)
         if command in ("back", "exit", "quit"):
             return
         if command in ("help", "?"):
