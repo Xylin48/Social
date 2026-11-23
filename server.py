@@ -44,6 +44,20 @@ def init_db():
           token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES users(username)
           ON DELETE CASCADE, expires_at TIMESTAMPTZ NOT NULL)""")
 
+        db.execute("""CREATE TABLE IF NOT EXISTS post_likes(
+          post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          PRIMARY KEY(post_id,username))""")
+        db.execute("""CREATE TABLE IF NOT EXISTS reposts(
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          post_id BIGINT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+          username TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE(post_id,username))""")
+        db.execute("CREATE INDEX IF NOT EXISTS reposts_user_idx ON reposts(username,id DESC)")
+        db.execute("CREATE INDEX IF NOT EXISTS post_likes_post_idx ON post_likes(post_id)")
+
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
 
@@ -120,12 +134,22 @@ def feed():
     with connection() as db:
         if username:
             rows = db.execute(
-                "SELECT id,username,body,created_at FROM posts WHERE lower(username)=lower(%s) AND (%s=0 OR id<%s) ORDER BY id DESC LIMIT %s",
-                (username, before, before, limit + 1)).fetchall()
+                "SELECT p.id,p.username,p.body,p.created_at,
+                       (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+                       (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+                       EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+                       EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+                FROM posts p WHERE lower(p.username)=lower(%s) AND (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s",
+                (g.username, g.username, username, before, before, limit + 1)).fetchall()
         else:
             rows = db.execute(
-                "SELECT id,username,body,created_at FROM posts WHERE (%s=0 OR id<%s) ORDER BY id DESC LIMIT %s",
-                (before, before, limit + 1)).fetchall()
+                "SELECT p.id,p.username,p.body,p.created_at,
+                       (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+                       (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+                       EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+                       EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+                FROM posts p WHERE (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s",
+                (g.username, g.username, before, before, limit + 1)).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
     return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
@@ -144,14 +168,70 @@ def shelf():
         return jsonify(error="Invalid pagination"), 400
     with connection() as db:
         rows = db.execute("""
-            SELECT p.id,p.username,p.body,p.created_at FROM posts p
-            JOIN follows f ON f.followed=p.username
-            WHERE f.follower=%s AND (%s=0 OR p.id<%s)
-            ORDER BY p.id DESC LIMIT %s
-        """, (g.username, before, before, limit + 1)).fetchall()
+            SELECT event_id, post_id, username, body, created_at, reposted_by,
+                   (SELECT count(*) FROM post_likes l WHERE l.post_id=post_id) AS like_count,
+                   (SELECT count(*) FROM reposts r WHERE r.post_id=post_id) AS repost_count,
+                   EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=post_id AND l.username=%s) AS liked_by_me,
+                   EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=post_id AND r.username=%s) AS reposted_by_me
+            FROM (
+              SELECT p.id*2 AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
+                     NULL::text AS reposted_by
+              FROM posts p JOIN follows f ON f.followed=p.username WHERE f.follower=%s
+              UNION ALL
+              SELECT r.id*2+1 AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
+                     r.username AS reposted_by
+              FROM reposts r JOIN posts p ON p.id=r.post_id
+              JOIN follows f ON f.followed=r.username WHERE f.follower=%s
+            ) events
+            WHERE (%s=0 OR event_id<%s)
+            ORDER BY event_id DESC LIMIT %s
+        """, (g.username,g.username,g.username,g.username,before,before,limit+1)).fetchall()
     page = rows[:limit]
-    return jsonify(posts=[dict(row, created_at=row["created_at"].isoformat()) for row in page],
-                   next_before=page[-1]["id"] if len(rows)>limit else None)
+    return jsonify(posts=[dict(row, id=row["post_id"], created_at=row["created_at"].isoformat()) for row in page],
+                   next_before=page[-1]["event_id"] if len(rows)>limit else None)
+
+
+@app.get("/posts/<int:post_id>")
+@auth_required
+def get_post(post_id):
+    with connection() as db:
+        row = db.execute("""
+            SELECT p.id,p.username,p.body,p.created_at,
+              (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
+              (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
+              EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
+              EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
+            FROM posts p WHERE p.id=%s
+        """, (g.username,g.username,post_id)).fetchone()
+    if not row:
+        return jsonify(error="Post not found"),404
+    return jsonify(dict(row,created_at=row["created_at"].isoformat()))
+
+
+@app.route("/posts/<int:post_id>/like", methods=["POST","DELETE"])
+@auth_required
+def like_post(post_id):
+    with connection() as db:
+        if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
+            return jsonify(error="Post not found"),404
+        if request.method=="POST":
+            db.execute("INSERT INTO post_likes(post_id,username) VALUES(%s,%s) ON CONFLICT DO NOTHING",(post_id,g.username))
+        else:
+            db.execute("DELETE FROM post_likes WHERE post_id=%s AND username=%s",(post_id,g.username))
+    return jsonify(status="okay",liked=request.method=="POST")
+
+
+@app.route("/posts/<int:post_id>/repost", methods=["POST","DELETE"])
+@auth_required
+def repost_post(post_id):
+    with connection() as db:
+        if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
+            return jsonify(error="Post not found"),404
+        if request.method=="POST":
+            db.execute("INSERT INTO reposts(post_id,username) VALUES(%s,%s) ON CONFLICT DO NOTHING",(post_id,g.username))
+        else:
+            db.execute("DELETE FROM reposts WHERE post_id=%s AND username=%s",(post_id,g.username))
+    return jsonify(status="okay",reposted=request.method=="POST")
 
 
 @app.get("/me/following")
