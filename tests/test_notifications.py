@@ -78,6 +78,24 @@ class NotificationsTest(unittest.TestCase):
         self.assertIn(("/notifications/7/read", "POST"), api.calls)
         self.assertIn(("/posts/42", "GET"), api.calls)
 
+    def test_notification_pagination_uses_server_cursor(self):
+        api = FakeAPI()
+        original = api.request
+
+        def request(path, method="GET", payload=None):
+            if path == "/notifications":
+                api.calls.append((path, method))
+                return {"notifications": [], "next_before": 99}
+            if path == "/notifications?before=99":
+                api.calls.append((path, method))
+                return {"notifications": [], "next_before": None}
+            return original(path, method, payload)
+
+        api.request = request
+        with patch("builtins.input", side_effect=["next", "back"]), contextlib.redirect_stdout(io.StringIO()):
+            notifi.open_notifications(api)
+        self.assertIn(("/notifications?before=99", "GET"), api.calls)
+
     def test_missing_post_does_not_mark_notification_read(self):
         api = FakeAPI()
         original = api.request
