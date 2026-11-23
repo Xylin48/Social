@@ -3,9 +3,17 @@ from accounts import profile
 from posts import display
 
 
+_last_announcement = None
+
+
 def announce(api):
     """Poll at a prompt boundary; never interrupt text being typed."""
+    global _last_announcement
     data=api.request("/notifications/summary")
+    snapshot=(data.get("unread"),data.get("unseen_posts"),data.get("latest_post_author"))
+    if snapshot == _last_announcement:
+        return
+    _last_announcement=snapshot
     count=data.get("unseen_posts",0)
     if count>=5:
         print("[Notification] You have {} unseen posts. Check your Shelf.".format(count))
@@ -22,7 +30,7 @@ def announce(api):
 def open_notifications(api):
     while True:
         items=api.request("/notifications").get("notifications",[])
-        print("\\nNOTIFICATIONS")
+        print("\nNOTIFICATIONS")
         if not items:
             print("No notifications.")
         for i,item in enumerate(items,1):
