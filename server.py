@@ -50,7 +50,7 @@ def hashed(password, salt):
 def auth_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        token = request.headers.get("Authorization", "").replace("Bearer ", "", 1).strip()
+        token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if not token:
             return jsonify(error="Unauthorized"), 401
         with connection() as db:
@@ -221,7 +221,9 @@ def profile(username):
           (SELECT count(*) FROM follows WHERE follower=%s) AS following_count,
           EXISTS(SELECT 1 FROM follows WHERE follower=%s AND followed=%s) AS is_following""",
           (row["username"], row["username"], g.username, row["username"])).fetchone()
-    return jsonify(username=row["username"], bio=row["bio"], description=row["description"],\n                   status=row["status"], status_set_at=row["status_set_at"].isoformat() if row["status_set_at"] else None,\n                   status_infinite=row["status_infinite"],
+    return jsonify(username=row["username"], bio=row["bio"], description=row["description"],
+                   status=row["status"], status_set_at=row["status_set_at"].isoformat() if row["status_set_at"] else None,
+                   status_infinite=row["status_infinite"],
                    created_at=row["created_at"].isoformat(),
                    followers=stats["followers"], following_count=stats["following_count"],
                    is_following=stats["is_following"], is_self=(row["username"]==g.username))
