@@ -21,9 +21,10 @@ def open_book(api):
 
     next_before = show_page()
     while True:
+        print("[1. feed] [2. user] [3. next] [4. back]")
         command = input("book>>> ").strip()
         action, _, argument = command.partition(" ")
-        action = action.lower()
+        action = {"1": "feed", "2": "user", "3": "next", "4": "back"}.get(action.lower(), action.lower())
         if action in ("back", "exit", "quit"):
             return
         if action in ("help", "?"):
