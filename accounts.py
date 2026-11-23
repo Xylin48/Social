@@ -45,7 +45,7 @@ def profile(api, username):
             print("[1. edit] [2. posts] [3. back]")
         else:
             print("[1. follow] [2. unfollow] [3. back]")
-        choice = input("profile>>> ").strip().lower()
+        try:\n            choice = input("profile>>> ").strip().lower()\n        except (KeyboardInterrupt, EOFError):\n            print()\n            return
         if choice in ("3", "back"):
             return
         if owner:
@@ -55,7 +55,7 @@ def profile(api, username):
             elif choice in ("2", "posts"):
                 from posts import display
                 display(api.request("/feed?" + urlencode({"username": data["username"]}))["posts"])
-                input("Press Enter to return to profile... ")
+                try:\n                    input("Press Enter to return to profile... ")\n                except (KeyboardInterrupt, EOFError):\n                    return
             else:
                 print("Unknown command.")
         else:
