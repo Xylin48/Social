@@ -1,7 +1,6 @@
 """Account entry and profile commands."""
 import getpass
 from urllib.parse import quote, urlencode
-from posts import display
 from status import visible_status
 
 
@@ -28,16 +27,41 @@ def sign_in(api):
 
 
 def profile(api, username):
-    data = api.request("/users/" + quote(username, safe=""))
-    print(data["username"] + " — " + (data["bio"] or "(no bio)"))
-    status = visible_status(data)
-    if status:
-        print("Status: " + status)
-    if data.get("description"):
-        print("Description:\n" + data["description"])
-    if "followers" in data:
-        print("Followers: {} | Following: {}".format(data["followers"], data["following_count"]))
-        if not data.get("is_self"):
-            print("You follow this user." if data.get("is_following") else "You do not follow this user.")
-            print("Use 'follow {}' or 'unfollow {}' in Social.".format(data["username"], data["username"]))
-    display(api.request("/feed?" + urlencode({"username": username}))["posts"])
+    """Interactive profile room; numbers and command names are equivalent."""
+    path = "/users/" + quote(username, safe="")
+    while True:
+        data = api.request(path)
+        owner = bool(data.get("is_self"))
+        print("\nSOCIAL")
+        print("────────────────────────────")
+        print("Welcome to {}'s profile".format(data["username"]))
+        print("\nStatus: " + (visible_status(data) or "(none)"))
+        print("Followers: {} | Following: {}".format(
+            data.get("followers", 0), data.get("following_count", 0)))
+        print("\nBio: " + (data.get("bio") or "(none)"))
+        print("\nDescription:\n" + (data.get("description") or "(none)"))
+        print("────────────────────────────")
+        if owner:
+            print("[1. edit] [2. posts] [3. back]")
+        else:
+            print("[1. follow] [2. unfollow] [3. back]")
+        choice = input("profile>>> ").strip().lower()
+        if choice in ("3", "back"):
+            return
+        if owner:
+            if choice in ("1", "edit"):
+                from settings import menu
+                menu(api)
+            elif choice in ("2", "posts"):
+                from posts import display
+                display(api.request("/feed?" + urlencode({"username": data["username"]}))["posts"])
+                input("Press Enter to return to profile... ")
+            else:
+                print("Unknown command.")
+        else:
+            if choice in ("1", "follow", "2", "unfollow"):
+                following = choice in ("1", "follow")
+                api.request(path + "/follow", "POST" if following else "DELETE")
+                print("Following updated.")
+            else:
+                print("Unknown command.")
