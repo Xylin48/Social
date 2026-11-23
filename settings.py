@@ -21,17 +21,17 @@ def menu(api):
         print("\nACCOUNT SETTINGS")
         print("1. Edit bio  2. Edit status  3. Edit description")
         print("4. Change password  5. Back")
-        choice = input("settings>>> ").strip()
+        choice = input("settings>>> ").strip().lower()
         if choice in ("5", "back", "exit", "quit"):
             return
-        if choice == "1":
+        if choice in ("1", "bio", "edit bio"):
             bio = input("New bio (160 characters max): ")
             if len(bio) > 160:
                 print("Bio too long.")
                 continue
             api.request("/me", "PATCH", {"bio": bio})
             print("Bio saved.")
-        elif choice == "2":
+        elif choice in ("2", "status", "edit status"):
             status = input("New status (280 characters max; blank clears): ")
             if len(status) > 280:
                 print("Status too long.")
@@ -50,11 +50,11 @@ def menu(api):
             api.request("/me", "PATCH", {"status": status, "status_infinite": infinite})
             print("Status saved indefinitely." if infinite else
                   "Status cleared." if not status else "Status saved for 48 hours.")
-        elif choice == "3":
+        elif choice in ("3", "description", "edit description"):
             description = read_description()
             api.request("/me", "PATCH", {"description": description})
             print("Description saved.")
-        elif choice == "4":
+        elif choice in ("4", "password", "change password"):
             old = getpass.getpass("Current password: ")
             new = getpass.getpass("New password: ")
             if new != getpass.getpass("Confirm new password: "):
