@@ -12,9 +12,11 @@ def living_room(api, username):
     print("\nWelcome to Social, {}. Type help to explore.".format(username))
     while True:
         try:
+            print("[1. book] [2. shelf] [3. post] [4. profile] [5. settings] [6. help] [7. logout]")
             command = input("social>>> ").strip()
             action, _, argument = command.partition(" ")
-            action = {"1": "book", "2": "shelf", "3": "post", "4": "profile",\n                      "5": "settings", "6": "help", "7": "logout"}.get(action.lower(), action.lower())
+            action = {"1": "book", "2": "shelf", "3": "post", "4": "profile",
+                      "5": "settings", "6": "help", "7": "logout"}.get(action.lower(), action.lower())
             if action in ("logout", "exit", "quit"):
                 try:
                     api.request("/logout", "POST", {})
