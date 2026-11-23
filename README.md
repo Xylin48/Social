@@ -6,7 +6,8 @@ Social is a networked terminal social application adapted from PyOs. The origina
 
 - `main.py` — the vestibule: enter Social and sign in or register.
 - `social.py` — the living room: central navigation after login.
-- `book.py` — the reading room: browse the shared feed, individual users, and older pages.
+- `book.py` — the public reading room: browse everyone’s posts, individual users, and older pages.
+- `shelf.py` — the personal reading room: posts from followed accounts, with pagination.
 - `posts.py` — write and display posts.
 - `accounts.py` — login, registration, and profiles.
 - `settings.py` — account preferences and password changes.
@@ -21,7 +22,7 @@ Run `python main.py` on the user's machine. No third-party Python dependencies a
 
 The command `python client.py` is supported as an alias. `python social.py` also enters the same networked application.
 
-In the living room: `post`, `book`, `feed`, `search USER`, `profile [USER]`, `settings`, `clear`, `logout`. Inside Book: `feed`, `user USERNAME`, `next`, `back`.
+In the living room: `post`, `book`, `shelf`, `feed`, `search USER`, `profile [USER]`, `follow USER`, `unfollow USER`, `following`, `settings`, `clear`, `logout`. Inside Book: `feed`, `user USERNAME`, `next`, `back`. Inside Shelf: `refresh`, `next`, `following`, `back`. Follow relationships and posts are stored centrally in Neon; Shelf queries them rather than duplicating posts.
 
 ## Deploy the server on Spaceship/cPanel
 
