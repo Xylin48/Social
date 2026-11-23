@@ -16,8 +16,10 @@ class FakeAPI:
 
     def request(self, path, method="GET", payload=None):
         self.calls.append((path, method, payload))
-        if path.startswith("/feed"):
+        if path.startswith("/feed") or path.startswith("/shelf"):
             return {"posts": [], "next_before": None}
+        if path == "/me/following":
+            return {"users": ["Alice"]}
         if path.startswith("/users?"):
             return {"users": []}
         return {"status": "okay"}
@@ -39,6 +41,21 @@ class NetworkRoomsTests(unittest.TestCase):
             living_room(api, "Alice")
         self.assertEqual(api.calls[0][0], "/feed")
         self.assertEqual(api.calls[-1][0], "/logout")
+
+    def test_shelf_uses_remote_feed(self):
+        from shelf import open_shelf
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["following", "back"]), redirect_stdout(io.StringIO()):
+            open_shelf(api)
+        self.assertEqual(api.calls[0][0], "/shelf")
+        self.assertEqual(api.calls[1][0], "/me/following")
+
+    def test_follow_and_unfollow_route_to_server(self):
+        api = FakeAPI()
+        with patch("builtins.input", side_effect=["follow Alice", "unfollow Alice", "logout"]), redirect_stdout(io.StringIO()):
+            living_room(api, "test")
+        self.assertEqual(api.calls[0][:2], ("/users/Alice/follow", "POST"))
+        self.assertEqual(api.calls[1][:2], ("/users/Alice/follow", "DELETE"))
 
     def test_post_is_sent_to_server(self):
         api = FakeAPI()
