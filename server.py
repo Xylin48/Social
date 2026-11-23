@@ -67,6 +67,9 @@ def init_db():
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           read_at TIMESTAMPTZ)""")
         db.execute("CREATE INDEX IF NOT EXISTS notifications_inbox_idx ON notifications(recipient,id DESC)")
+        db.execute("""CREATE TABLE IF NOT EXISTS shelf_views(
+          username TEXT PRIMARY KEY REFERENCES users(username) ON DELETE CASCADE,
+          viewed_at TIMESTAMPTZ NOT NULL DEFAULT now())""")
 
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
@@ -196,6 +199,11 @@ def shelf():
             WHERE (%s=0 OR event_id<%s)
             ORDER BY event_id DESC LIMIT %s
         """, (g.username,g.username,g.username,g.username,before,before,limit+1)).fetchall()
+        if before == 0:
+            db.execute("""INSERT INTO shelf_views(username,viewed_at) VALUES(%s,now())
+                          ON CONFLICT(username) DO UPDATE SET viewed_at=now()""",(g.username,))
+            db.execute("""UPDATE notifications SET read_at=now()
+                          WHERE recipient=%s AND kind='post' AND read_at IS NULL""",(g.username,))
     page = rows[:limit]
     return jsonify(posts=[dict(row, id=row["post_id"], created_at=row["created_at"].isoformat()) for row in page],
                    next_before=page[-1]["event_id"] if len(rows)>limit else None)
@@ -282,12 +290,18 @@ def read_notification(notification_id):
 @auth_required
 def notification_summary():
     with connection() as db:
-        rows=db.execute("""SELECT actor,kind FROM notifications
-                           WHERE recipient=%s AND read_at IS NULL
-                           ORDER BY id DESC LIMIT 100""",(g.username,)).fetchall()
-    post_events=[r for r in rows if r["kind"]=="post"]
-    return jsonify(unread=len(rows),unseen_posts=len(post_events),
-                   latest_post_author=post_events[0]["actor"] if post_events else None)
+        unread=db.execute("""SELECT count(*) AS n FROM notifications
+                             WHERE recipient=%s AND read_at IS NULL""",(g.username,)).fetchone()["n"]
+        post_events=db.execute("""SELECT n.actor FROM notifications n
+            WHERE n.recipient=%s AND n.kind='post' AND n.read_at IS NULL
+            ORDER BY n.id DESC LIMIT 1""",(g.username,)).fetchone()
+        unseen=db.execute("""SELECT count(*) AS n FROM notifications n
+            LEFT JOIN shelf_views v ON v.username=n.recipient
+            WHERE n.recipient=%s AND n.kind='post'
+            AND n.created_at>COALESCE(v.viewed_at,'epoch'::timestamptz)""",
+            (g.username,)).fetchone()["n"]
+    return jsonify(unread=unread,unseen_posts=unseen,
+                   latest_post_author=post_events["actor"] if post_events else None)
 
 
 @app.get("/me/following")
