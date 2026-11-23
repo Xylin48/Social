@@ -32,5 +32,6 @@ class SocialAPI:
             except Exception:
                 message = str(exc)
             raise ValueError(message) from exc
-        except (URLError, TimeoutError, socket.timeout) as exc:
-            raise ValueError("Cannot connect to Social server: " + str(exc.reason)) from exc
+        except (URLError, TimeoutError, socket.timeout, ConnectionError) as exc:
+            detail = getattr(exc, "reason", exc)
+            raise ValueError("Cannot connect to Social server: " + str(detail)) from exc
