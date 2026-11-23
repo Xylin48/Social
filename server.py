@@ -58,6 +58,16 @@ def init_db():
         db.execute("CREATE INDEX IF NOT EXISTS reposts_user_idx ON reposts(username,id DESC)")
         db.execute("CREATE INDEX IF NOT EXISTS post_likes_post_idx ON post_likes(post_id)")
 
+        db.execute("""CREATE TABLE IF NOT EXISTS notifications(
+          id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+          recipient TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          actor TEXT NOT NULL REFERENCES users(username) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          post_id BIGINT REFERENCES posts(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          read_at TIMESTAMPTZ)""")
+        db.execute("CREATE INDEX IF NOT EXISTS notifications_inbox_idx ON notifications(recipient,id DESC)")
+
 def hashed(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 310000)
 
@@ -215,7 +225,12 @@ def like_post(post_id):
         if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
             return jsonify(error="Post not found"),404
         if request.method=="POST":
-            db.execute("INSERT INTO post_likes(post_id,username) VALUES(%s,%s) ON CONFLICT DO NOTHING",(post_id,g.username))
+            inserted=db.execute("""INSERT INTO post_likes(post_id,username) VALUES(%s,%s)
+                                   ON CONFLICT DO NOTHING RETURNING post_id""",(post_id,g.username)).fetchone()
+            if inserted:
+                db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                              SELECT username,%s,'like',id FROM posts
+                              WHERE id=%s AND username<>%s""",(g.username,post_id,g.username))
         else:
             db.execute("DELETE FROM post_likes WHERE post_id=%s AND username=%s",(post_id,g.username))
     return jsonify(status="okay",liked=request.method=="POST")
@@ -228,10 +243,51 @@ def repost_post(post_id):
         if not db.execute("SELECT 1 FROM posts WHERE id=%s",(post_id,)).fetchone():
             return jsonify(error="Post not found"),404
         if request.method=="POST":
-            db.execute("INSERT INTO reposts(post_id,username) VALUES(%s,%s) ON CONFLICT DO NOTHING",(post_id,g.username))
+            inserted=db.execute("""INSERT INTO reposts(post_id,username) VALUES(%s,%s)
+                                   ON CONFLICT DO NOTHING RETURNING id""",(post_id,g.username)).fetchone()
+            if inserted:
+                db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                              SELECT username,%s,'repost',id FROM posts
+                              WHERE id=%s AND username<>%s""",(g.username,post_id,g.username))
         else:
             db.execute("DELETE FROM reposts WHERE post_id=%s AND username=%s",(post_id,g.username))
     return jsonify(status="okay",reposted=request.method=="POST")
+
+
+@app.get("/notifications")
+@auth_required
+def list_notifications():
+    with connection() as db:
+        rows = db.execute("""SELECT id,actor,kind,post_id,created_at,read_at
+                             FROM notifications WHERE recipient=%s
+                             ORDER BY id DESC LIMIT 100""",(g.username,)).fetchall()
+    return jsonify(notifications=[dict(row,created_at=row["created_at"].isoformat(),
+                                     read_at=row["read_at"].isoformat() if row["read_at"] else None)
+                                 for row in rows])
+
+
+@app.post("/notifications/<int:notification_id>/read")
+@auth_required
+def read_notification(notification_id):
+    with connection() as db:
+        row=db.execute("""UPDATE notifications SET read_at=COALESCE(read_at,now())
+                          WHERE id=%s AND recipient=%s RETURNING id""",
+                       (notification_id,g.username)).fetchone()
+    if not row:
+        return jsonify(error="Notification not found"),404
+    return jsonify(status="okay")
+
+
+@app.get("/notifications/summary")
+@auth_required
+def notification_summary():
+    with connection() as db:
+        rows=db.execute("""SELECT actor,kind FROM notifications
+                           WHERE recipient=%s AND read_at IS NULL
+                           ORDER BY id DESC LIMIT 100""",(g.username,)).fetchall()
+    post_events=[r for r in rows if r["kind"]=="post"]
+    return jsonify(unread=len(rows),unseen_posts=len(post_events),
+                   latest_post_author=post_events[0]["actor"] if post_events else None)
 
 
 @app.get("/me/following")
@@ -254,8 +310,12 @@ def follow(username):
         target = user["username"]
         if target == g.username:
             return jsonify(error="Cannot follow yourself"), 400
-        db.execute("INSERT INTO follows(follower,followed) VALUES(%s,%s) ON CONFLICT DO NOTHING",
-                   (g.username, target))
+        inserted=db.execute("""INSERT INTO follows(follower,followed) VALUES(%s,%s)
+                               ON CONFLICT DO NOTHING RETURNING follower""",
+                            (g.username,target)).fetchone()
+        if inserted:
+            db.execute("""INSERT INTO notifications(recipient,actor,kind)
+                          VALUES(%s,%s,'follow')""",(target,g.username))
     return jsonify(status="okay", following=True)
 
 
@@ -280,6 +340,9 @@ def post():
         return jsonify(error="Post must contain 1-2000 characters"), 400
     with connection() as db:
         row = db.execute("INSERT INTO posts(username,body) VALUES(%s,%s) RETURNING id", (g.username, body)).fetchone()
+        db.execute("""INSERT INTO notifications(recipient,actor,kind,post_id)
+                      SELECT follower,%s,'post',%s FROM follows WHERE followed=%s""",
+                   (g.username,row["id"],g.username))
     return jsonify(id=row["id"]), 201
 
 @app.get("/users")
@@ -335,6 +398,9 @@ def settings():
             db.execute("""UPDATE users SET status=%s,status_infinite=%s,
                        status_set_at=CASE WHEN %s='' THEN NULL ELSE now() END WHERE username=%s""",
                        (data["status"], data.get("status_infinite", False), data["status"], g.username))
+        db.execute("""INSERT INTO notifications(recipient,actor,kind)
+                      SELECT follower,%s,'profile' FROM follows WHERE followed=%s""",
+                   (g.username,g.username))
     return jsonify(status="okay")
 
 
