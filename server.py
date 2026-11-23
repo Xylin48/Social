@@ -265,13 +265,24 @@ def repost_post(post_id):
 @app.get("/notifications")
 @auth_required
 def list_notifications():
+    try:
+        before = int(request.args.get("before", "0"))
+        limit = int(request.args.get("limit", "30"))
+        if before < 0 or not 1 <= limit <= 100:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify(error="Invalid pagination"), 400
     with connection() as db:
         rows = db.execute("""SELECT id,actor,kind,post_id,created_at,read_at
                              FROM notifications WHERE recipient=%s
-                             ORDER BY id DESC LIMIT 100""",(g.username,)).fetchall()
+                             AND (%s=0 OR id<%s)
+                             ORDER BY id DESC LIMIT %s""",
+                          (g.username,before,before,limit+1)).fetchall()
+    page = rows[:limit]
     return jsonify(notifications=[dict(row,created_at=row["created_at"].isoformat(),
                                      read_at=row["read_at"].isoformat() if row["read_at"] else None)
-                                 for row in rows])
+                                 for row in page],
+                   next_before=page[-1]["id"] if len(rows)>limit else None)
 
 
 @app.post("/notifications/<int:notification_id>/read")
