@@ -148,7 +148,7 @@ def feed():
                        (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
                        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
                        EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
-                FROM posts p WHERE (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s",
+                FROM posts p WHERE (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s""",
                 (g.username, g.username, before, before, limit + 1)).fetchall()
     has_more = len(rows) > limit
     page = rows[:limit]
