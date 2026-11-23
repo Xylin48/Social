@@ -39,3 +39,7 @@ Run `python -m unittest discover -s tests -v`. Network room tests use a fake API
 ## Profile fields
 
 Bio (160 characters) is a short permanent statement. Description (up to 10000 characters) supports multiline text, including imported plain-text profile descriptions. Status (280 characters) lasts 48 hours by default or can be set to `save infinite`. The server stores the status and creation timestamp in the shared database, while each terminal client evaluates expiry locally when viewing a profile. This needs no background timer or always-running client. The old status remains stored until replaced or cleared, but is hidden after expiration by current clients. A client with an incorrect system clock can display an incorrect result; older clients may not implement expiry.
+
+## Numbered navigation
+
+Login, the living room, Book, Shelf, profile pages, and Settings accept either the displayed number or its command name. Text commands with arguments such as `profile Alice`, `search Alice`, `follow Alice`, and `post Hello` remain supported. Profile pages have owner-specific actions (`edit`, `posts`, `back`) and visitor actions (`follow`, `unfollow`, `back`).
