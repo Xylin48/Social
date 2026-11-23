@@ -412,7 +412,7 @@ def profile(username):
 @app.patch("/me")
 @auth_required
 def settings():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
     allowed = {"bio", "description", "status", "status_infinite"}
     if not isinstance(data, dict) or not data or set(data) - allowed:
         return jsonify(error="Invalid settings"), 400
@@ -447,7 +447,9 @@ def settings():
 @app.post("/me/password")
 @auth_required
 def change_password():
-    data = request.get_json(silent=True) or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Expected a JSON object"), 400
     old = str(data.get("current_password", ""))
     new = str(data.get("new_password", ""))
     if not 8 <= len(new) <= 1024:
