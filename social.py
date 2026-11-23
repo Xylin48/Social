@@ -4,13 +4,13 @@ from urllib.parse import urlencode
 from accounts import profile
 from book import open_book
 from shelf import open_shelf
-from posts import display, publish
+from posts import display, publish, identity
 from settings import menu as settings_menu
 from notifi import announce, open_notifications
 
 
 def living_room(api, username):
-    print("\nWelcome to Social, {}. Type help to explore.".format(username))
+    print("\nWelcome to Social, {}. Type help to explore.".format(identity(username, getattr(api, "is_dev", False))))
     while True:
         try:
             announce(api)
@@ -52,8 +52,9 @@ def living_room(api, username):
             elif action == "feed":
                 display(api.request("/feed")["posts"])
             elif action == "search":
-                users = api.request("/users?" + urlencode({"q": argument or input("Username: ")}))["users"]
-                print("\n".join(users) if users else "User not found.")
+                result = api.request("/users?" + urlencode({"q": argument or input("Username: ")}))
+                users = result["users"]
+                print("\n".join(identity(u, result.get("user_badges", {}).get(u)) for u in users) if users else "User not found.")
             elif action == "profile":
                 profile(api, argument or username)
             elif action == "settings":
