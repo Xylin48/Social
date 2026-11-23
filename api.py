@@ -12,6 +12,7 @@ class SocialAPI:
     def __init__(self, base_url=API_URL):
         self.base_url = base_url.rstrip("/")
         self.token = None
+        self.is_dev = False
 
     def request(self, path, method="GET", payload=None):
         headers = {"Accept": "application/json"}
