@@ -131,7 +131,7 @@ def settings():
 
 @app.get("/health")
 def health():
-    return jsonify(status="ok")
+    return jsonify(status="okay")
 
 if __name__ == "__main__":
     init_db()
