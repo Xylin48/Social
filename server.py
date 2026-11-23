@@ -134,16 +134,16 @@ def feed():
     with connection() as db:
         if username:
             rows = db.execute(
-                "SELECT p.id,p.username,p.body,p.created_at,
+                """SELECT p.id,p.username,p.body,p.created_at,
                        (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
                        (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
                        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
                        EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=p.id AND r.username=%s) AS reposted_by_me
-                FROM posts p WHERE lower(p.username)=lower(%s) AND (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s",
+                FROM posts p WHERE lower(p.username)=lower(%s) AND (%s=0 OR p.id<%s) ORDER BY p.id DESC LIMIT %s""",
                 (g.username, g.username, username, before, before, limit + 1)).fetchall()
         else:
             rows = db.execute(
-                "SELECT p.id,p.username,p.body,p.created_at,
+                """SELECT p.id,p.username,p.body,p.created_at,
                        (SELECT count(*) FROM post_likes l WHERE l.post_id=p.id) AS like_count,
                        (SELECT count(*) FROM reposts r WHERE r.post_id=p.id) AS repost_count,
                        EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=p.id AND l.username=%s) AS liked_by_me,
@@ -169,16 +169,16 @@ def shelf():
     with connection() as db:
         rows = db.execute("""
             SELECT event_id, post_id, username, body, created_at, reposted_by,
-                   (SELECT count(*) FROM post_likes l WHERE l.post_id=post_id) AS like_count,
-                   (SELECT count(*) FROM reposts r WHERE r.post_id=post_id) AS repost_count,
-                   EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=post_id AND l.username=%s) AS liked_by_me,
-                   EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=post_id AND r.username=%s) AS reposted_by_me
+                   (SELECT count(*) FROM post_likes l WHERE l.post_id=events.post_id) AS like_count,
+                   (SELECT count(*) FROM reposts r WHERE r.post_id=events.post_id) AS repost_count,
+                   EXISTS(SELECT 1 FROM post_likes l WHERE l.post_id=events.post_id AND l.username=%s) AS liked_by_me,
+                   EXISTS(SELECT 1 FROM reposts r WHERE r.post_id=events.post_id AND r.username=%s) AS reposted_by_me
             FROM (
-              SELECT p.id*2 AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
+              SELECT (extract(epoch from p.created_at)*1000000)::bigint AS event_id,p.id AS post_id,p.username,p.body,p.created_at,
                      NULL::text AS reposted_by
               FROM posts p JOIN follows f ON f.followed=p.username WHERE f.follower=%s
               UNION ALL
-              SELECT r.id*2+1 AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
+              SELECT (extract(epoch from r.created_at)*1000000)::bigint AS event_id,p.id AS post_id,p.username,p.body,r.created_at,
                      r.username AS reposted_by
               FROM reposts r JOIN posts p ON p.id=r.post_id
               JOIN follows f ON f.followed=r.username WHERE f.follower=%s
