@@ -1,0 +1,39 @@
+"""Shelf: posts from accounts the signed-in user follows."""
+from urllib.parse import urlencode
+from posts import display
+
+
+def open_shelf(api):
+    print("\nSHELF — Posts from people you follow")
+    before = None
+
+    def show_page():
+        params = {"before": before} if before else {}
+        result = api.request("/shelf" + ("?" + urlencode(params) if params else ""))
+        if not result["posts"] and before is None:
+            print("Your shelf is empty. Follow someone to fill it.")
+        else:
+            display(result["posts"])
+        return result.get("next_before")
+
+    next_before = show_page()
+    while True:
+        command = input("shelf>>> ").strip().lower()
+        if command in ("back", "exit", "quit"):
+            return
+        if command in ("help", "?"):
+            print("refresh, next, following, back")
+        elif command in ("refresh", ""):
+            before = None
+            next_before = show_page()
+        elif command == "next":
+            if next_before is None:
+                print("End of posts.")
+            else:
+                before = next_before
+                next_before = show_page()
+        elif command == "following":
+            users = api.request("/me/following")["users"]
+            print("\n".join(users) if users else "You aren't following anyone yet.")
+        else:
+            print("Unknown Shelf command. Type help.")
